@@ -16,10 +16,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # ---- Configuration ----
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-DB_NAME = os.getenv("DB_NAME", "test_database")
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8001/api")
+DISCORD_BOT_TOKEN = "MTM5NjU0NDUyOTMyNjI4MDgyNw.Gdso_K.UeFJxtZyCG330szkI6klM1SuIk9QB5hoxKkft0"
+MONGO_URL = "mongodb://localhost:27017" 
+DB_NAME = "test_database"
+BACKEND_API_URL = "http://localhost:8001/api"
 
 if not DISCORD_BOT_TOKEN:
     print("❌ Please set DISCORD_BOT_TOKEN environment variable and re-run.")
@@ -42,6 +42,20 @@ async def on_ready():
     logging.info(f"✅ YouTube Lead Generation Bot logged in as {bot.user} (id: {bot.user.id})")
     guilds = ", ".join([g.name for g in bot.guilds]) or "(no guilds)"
     logging.info(f"Connected to guilds: {guilds}")
+    logging.info("🎯 Bot is ready to receive commands!")
+
+@bot.event
+async def on_message(message):
+    # Don't respond to bot messages
+    if message.author.bot:
+        return
+    
+    # Log all messages that start with !
+    if message.content.startswith('!'):
+        logging.info(f"📨 Received command: {message.content} from {message.author}")
+    
+    # Process commands
+    await bot.process_commands(message)
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -377,7 +391,7 @@ async def clear_database(ctx, collection_name: str = None):
     except asyncio.TimeoutError:
         await ctx.send("❌ Confirmation timeout. Operation cancelled.")
 
-@bot.command(name="help")
+@bot.command(name="guide")
 async def show_help(ctx):
     """Show help information"""
     embed = discord.Embed(
@@ -413,6 +427,12 @@ async def show_help(ctx):
     embed.add_field(
         name="🗑️ !clear",
         value="`!clear [collection]`\nClear database collections (DANGEROUS!)",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="❓ !guide",
+        value="`!guide`\nShow this help guide",
         inline=False
     )
     
