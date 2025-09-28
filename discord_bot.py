@@ -417,6 +417,12 @@ async def show_help(ctx):
     )
     
     embed.add_field(
+        name="❓ !guide",
+        value="`!guide`\nShow this help guide",
+        inline=False
+    )
+    
+    embed.add_field(
         name="📋 Example Usage",
         value="`!start 10000 1000000 500 2000 0.14 2.0 crypto trading bitcoin investment`",
         inline=False
