@@ -377,7 +377,7 @@ async def clear_database(ctx, collection_name: str = None):
     except asyncio.TimeoutError:
         await ctx.send("❌ Confirmation timeout. Operation cancelled.")
 
-@bot.command(name="help")
+@bot.command(name="guide")
 async def show_help(ctx):
     """Show help information"""
     embed = discord.Embed(
