@@ -16,10 +16,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # ---- Configuration ----
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-DB_NAME = os.getenv("DB_NAME", "test_database")
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:8001/api")
+DISCORD_BOT_TOKEN = "YOUR_DISCORD_BOT_TOKEN_HERE"  # Add your bot token
+MONGO_URL = "mongodb://localhost:27017" 
+DB_NAME = "test_database"
+BACKEND_API_URL = "http://localhost:8001/api"
 
 if not DISCORD_BOT_TOKEN:
     print("❌ Please set DISCORD_BOT_TOKEN environment variable and re-run.")
