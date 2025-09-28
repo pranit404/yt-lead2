@@ -81,10 +81,10 @@ DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1417915138400587909/B9_tEDQK
 GEMINI_API_KEY = "AIzaSyDO7g9pBST5_856x6PkXilLVhMqYtCK2J0"
 
 # Authentication Configuration
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
-ALGORITHM = "HS256"
+SECRET_KEY = "your-secret-key-change-this-in-production"
+ALGORITHM = "HS256" 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY", "")
+RECAPTCHA_SECRET_KEY = ""
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
