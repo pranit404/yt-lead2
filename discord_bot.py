@@ -42,6 +42,20 @@ async def on_ready():
     logging.info(f"✅ YouTube Lead Generation Bot logged in as {bot.user} (id: {bot.user.id})")
     guilds = ", ".join([g.name for g in bot.guilds]) or "(no guilds)"
     logging.info(f"Connected to guilds: {guilds}")
+    logging.info("🎯 Bot is ready to receive commands!")
+
+@bot.event
+async def on_message(message):
+    # Don't respond to bot messages
+    if message.author.bot:
+        return
+    
+    # Log all messages that start with !
+    if message.content.startswith('!'):
+        logging.info(f"📨 Received command: {message.content} from {message.author}")
+    
+    # Process commands
+    await bot.process_commands(message)
 
 @bot.event
 async def on_command_error(ctx, error):
