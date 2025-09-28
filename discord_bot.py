@@ -16,7 +16,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # ---- Configuration ----
-DISCORD_BOT_TOKEN = "YOUR_DISCORD_BOT_TOKEN_HERE"  # Add your bot token
+DISCORD_BOT_TOKEN = "MTM5NjU0NDUyOTMyNjI4MDgyNw.Gdso_K.UeFJxtZyCG330szkI6klM1SuIk9QB5hoxKkft0"
 MONGO_URL = "mongodb://localhost:27017" 
 DB_NAME = "test_database"
 BACKEND_API_URL = "http://localhost:8001/api"
