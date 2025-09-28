@@ -71,20 +71,20 @@ YOUTUBE_API_KEYS = [
 current_key_index = 0
 
 # Email Configuration  
-SMTP_EMAIL = os.environ.get("SMTP_EMAIL", "your-email@gmail.com")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "your-app-password")
+SMTP_EMAIL = "nighthawks848@gmail.com"
+SMTP_PASSWORD = "nbhp idgp gsdo iuhx"
 
 # Discord Configuration
-DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "")
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1417915138400587909/B9_tEDQKMZfemFvu0z2vy3z7HjVyCZf5PCAj6DmDuOdPira5wwvH_QJpZRjKTUPbzP3c"
 
 # Gemini Configuration
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = "AIzaSyDO7g9pBST5_856x6PkXilLVhMqYtCK2J0"
 
 # Authentication Configuration
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
-ALGORITHM = "HS256"
+SECRET_KEY = "your-secret-key-change-this-in-production"
+ALGORITHM = "HS256" 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY", "")
+RECAPTCHA_SECRET_KEY = ""
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
