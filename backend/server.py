@@ -242,6 +242,41 @@ class ProxyStatusUpdate(BaseModel):
 class ProxyHealthCheckRequest(BaseModel):
     proxy_id: Optional[str] = None  # If None, check all proxies
 
+# Queue Management Models
+class QueueRequest(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    channel_id: str
+    request_type: str = "channel_scraping"  # Types: channel_scraping, email_extraction, 2captcha_fallback
+    priority: int = 5  # Priority 1-10 (1 = highest)
+    attempts: int = 0
+    max_attempts: int = 3
+    status: str = "pending"  # pending, processing, completed, failed, retry_scheduled
+    account_id: Optional[str] = None  # Assigned account for processing
+    proxy_id: Optional[str] = None  # Assigned proxy for processing
+    scheduled_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    processing_started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = {}  # Additional request-specific data
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class AddToQueueRequest(BaseModel):
+    channel_id: str
+    request_type: str = "channel_scraping"
+    priority: int = 5
+    payload: Optional[Dict[str, Any]] = {}
+
+class QueueStatusUpdate(BaseModel):
+    status: str
+    error_message: Optional[str] = None
+
+class QueueBatchRequest(BaseModel):
+    channel_ids: List[str]
+    request_type: str = "channel_scraping"
+    priority: int = 5
+    payload: Optional[Dict[str, Any]] = {}
+
 # Utility Functions
 async def send_discord_notification(message: str):
     """Send notification to Discord webhook"""
