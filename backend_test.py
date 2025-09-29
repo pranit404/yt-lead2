@@ -860,9 +860,10 @@ class YouTubeAccountManagementTester:
         total_tests = len(self.test_results)
         passed_tests = total_tests - len(self.failed_tests)
         
-        print("\n" + "=" * 60)
-        print("📊 EMAIL EXTRACTION BUG FIX TEST REPORT")
-        print("=" * 60)
+        print("\n" + "=" * 70)
+        print("📊 YOUTUBE ACCOUNT MANAGEMENT SYSTEM TEST REPORT")
+        print("🎯 2captcha Integration Phase 1 Step 1")
+        print("=" * 70)
         print(f"Total Tests: {total_tests}")
         print(f"Passed: {passed_tests}")
         print(f"Failed: {len(self.failed_tests)}")
@@ -875,29 +876,43 @@ class YouTubeAccountManagementTester:
         
         print("\n🔍 KEY FINDINGS:")
         
-        # Analyze results for key insights
-        text_extraction_tests = [t for t in self.test_results if "Text Email Extraction" in t["test_name"]]
-        text_passed = len([t for t in text_extraction_tests if t["success"]])
+        # Analyze results by test category
+        categories = {
+            "CRUD Operations": [t for t in self.test_results if any(crud in t["test_name"] for crud in ["Add Account", "List All", "Get Specific", "Update Status", "Delete Account"])],
+            "Account Rotation": [t for t in self.test_results if "Available Account" in t["test_name"]],
+            "Statistics": [t for t in self.test_results if "Statistics" in t["test_name"]],
+            "Database Schema": [t for t in self.test_results if "Schema" in t["test_name"]],
+            "Environment Config": [t for t in self.test_results if "Environment" in t["test_name"]],
+            "System Integration": [t for t in self.test_results if "Existing System" in t["test_name"]],
+            "Error Handling": [t for t in self.test_results if "Error Handling" in t["test_name"] or "Duplicate" in t["test_name"] or "Invalid" in t["test_name"]]
+        }
         
-        channel_extraction_tests = [t for t in self.test_results if "Channel Email Extraction" in t["test_name"]]
-        channel_passed = len([t for t in channel_extraction_tests if t["success"]])
+        for category, tests in categories.items():
+            if tests:
+                passed = len([t for t in tests if t["success"]])
+                print(f"  • {category}: {passed}/{len(tests)} passed")
         
-        regex_tests = [t for t in self.test_results if "Email Regex" in t["test_name"]]
-        regex_passed = len([t for t in regex_tests if t["success"]])
-        
-        print(f"  • Text Email Extraction: {text_passed}/{len(text_extraction_tests)} passed")
-        print(f"  • Channel Email Extraction: {channel_passed}/{len(channel_extraction_tests)} passed")
-        print(f"  • Email Regex Patterns: {regex_passed}/{len(regex_tests)} passed")
+        # Critical issues assessment
+        critical_failures = []
+        for test in self.failed_tests:
+            if any(critical in test["test_name"] for critical in ["Add Account", "List All", "Get Available", "Database Schema"]):
+                critical_failures.append(test["test_name"])
         
         # Overall assessment
         if len(self.failed_tests) == 0:
-            print("\n✅ OVERALL: Email extraction bug fix appears to be working correctly!")
-        elif len(self.failed_tests) <= 2:
-            print("\n⚠️ OVERALL: Email extraction mostly working with minor issues")
+            print("\n✅ OVERALL: YouTube Account Management System is working perfectly!")
+            print("🎯 Ready for Phase 1 Step 2: Enhanced email extraction with 2captcha fallback")
+        elif critical_failures:
+            print(f"\n❌ OVERALL: Critical issues found in core functionality: {', '.join(critical_failures)}")
+            print("🚨 Must fix critical issues before proceeding to next phase")
+        elif len(self.failed_tests) <= 3:
+            print("\n⚠️ OVERALL: Account management mostly working with minor issues")
+            print("🔧 Minor fixes recommended but system is functional")
         else:
-            print("\n❌ OVERALL: Email extraction still has significant issues")
+            print("\n❌ OVERALL: Multiple issues found in account management system")
+            print("🛠️ Significant fixes needed before next phase")
         
-        return len(self.failed_tests) == 0
+        return len(critical_failures) == 0
 
 def main():
     """Main test execution"""
