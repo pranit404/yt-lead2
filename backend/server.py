@@ -1691,13 +1691,23 @@ async def delete_youtube_account(account_id: str):
 async def add_proxy(request: ProxyAddRequest):
     """Add a new proxy to the proxy pool"""
     try:
+        # Validate input data
+        if not validate_ip_address(request.ip):
+            raise HTTPException(status_code=400, detail=f"Invalid IP address: {request.ip}")
+        
+        if not validate_port(request.port):
+            raise HTTPException(status_code=400, detail=f"Invalid port number: {request.port}. Must be between 1 and 65535")
+        
+        if not validate_protocol(request.protocol):
+            raise HTTPException(status_code=400, detail=f"Invalid protocol: {request.protocol}. Must be one of: http, https, socks4, socks5")
+        
         # Create new proxy configuration
         proxy = ProxyConfig(
             ip=request.ip,
             port=request.port,
             username=request.username,
             password=request.password,
-            protocol=request.protocol,
+            protocol=request.protocol.lower(),
             location=request.location,
             provider=request.provider
         )
