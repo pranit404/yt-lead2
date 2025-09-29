@@ -92,6 +92,12 @@ MAX_ACCOUNTS_CONCURRENT = int(os.environ.get('MAX_ACCOUNTS_CONCURRENT', '3'))
 ACCOUNT_COOLDOWN_MINUTES = int(os.environ.get('ACCOUNT_COOLDOWN_MINUTES', '30'))
 MAX_DAILY_REQUESTS_PER_ACCOUNT = int(os.environ.get('MAX_DAILY_REQUESTS_PER_ACCOUNT', '100'))
 
+# Proxy Management Settings
+MAX_PROXIES_CONCURRENT = int(os.environ.get('MAX_PROXIES_CONCURRENT', '5'))
+PROXY_COOLDOWN_MINUTES = int(os.environ.get('PROXY_COOLDOWN_MINUTES', '15'))
+MAX_DAILY_REQUESTS_PER_PROXY = int(os.environ.get('MAX_DAILY_REQUESTS_PER_PROXY', '200'))
+PROXY_HEALTH_CHECK_TIMEOUT = int(os.environ.get('PROXY_HEALTH_CHECK_TIMEOUT', '10'))
+
 # Authentication Configuration
 SECRET_KEY = "your-secret-key-change-this-in-production"
 ALGORITHM = "HS256" 
