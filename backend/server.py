@@ -1667,6 +1667,246 @@ async def delete_youtube_account(account_id: str):
         logger.error(f"Error deleting account {account_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Proxy Management API Routes
+@api_router.post("/proxies/add", response_model=ProxyConfig)
+async def add_proxy(request: ProxyAddRequest):
+    """Add a new proxy to the proxy pool"""
+    try:
+        # Create new proxy configuration
+        proxy = ProxyConfig(
+            ip=request.ip,
+            port=request.port,
+            username=request.username,
+            password=request.password,
+            protocol=request.protocol,
+            location=request.location,
+            provider=request.provider
+        )
+        
+        # Check if proxy already exists
+        existing = await db.proxy_pool.find_one({
+            "ip": request.ip,
+            "port": request.port
+        })
+        
+        if existing:
+            raise HTTPException(status_code=400, detail="Proxy with this IP and port already exists")
+        
+        # Insert proxy into database
+        await db.proxy_pool.insert_one(proxy.dict())
+        
+        await send_discord_notification(f"🔗 **New Proxy Added** \n🌐 IP: {proxy.ip}:{proxy.port}\n📍 Location: {proxy.location or 'Unknown'}")
+        
+        return proxy
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding proxy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/proxies", response_model=List[ProxyConfig])
+async def get_proxies():
+    """Get all proxies in the pool"""
+    try:
+        proxies = await db.proxy_pool.find().to_list(1000)
+        return [ProxyConfig(**proxy) for proxy in proxies]
+    except Exception as e:
+        logger.error(f"Error getting proxies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/proxies/available")
+async def get_next_available_proxy():
+    """Get the next available proxy for testing"""
+    try:
+        proxy = await get_available_proxy()
+        
+        if not proxy:
+            return {
+                "message": "No available proxies found",
+                "available": False,
+                "proxy": None
+            }
+        
+        return {
+            "message": "Available proxy found",
+            "available": True,
+            "proxy": proxy.dict(),
+            "ready_for_use": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting available proxy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/proxies/stats/overview")
+async def get_proxies_overview():
+    """Get overview statistics of all proxies"""
+    try:
+        total = await db.proxy_pool.count_documents({})
+        active = await db.proxy_pool.count_documents({"status": "active"})
+        healthy = await db.proxy_pool.count_documents({"health_status": "healthy"})
+        banned = await db.proxy_pool.count_documents({"status": "banned"})
+        
+        # Get average success rate
+        pipeline = [
+            {"$group": {
+                "_id": None,
+                "avg_success_rate": {"$avg": "$success_rate"},
+                "avg_response_time": {"$avg": "$response_time_avg"}
+            }}
+        ]
+        
+        averages = await db.proxy_pool.aggregate(pipeline).to_list(1)
+        avg_success = averages[0]["avg_success_rate"] if averages else 0
+        avg_response = averages[0]["avg_response_time"] if averages else 0
+        
+        return {
+            "total_proxies": total,
+            "active_proxies": active,
+            "healthy_proxies": healthy,
+            "banned_proxies": banned,
+            "average_success_rate": round(avg_success, 2),
+            "average_response_time": round(avg_response, 3),
+            "pool_health": "good" if (healthy / max(active, 1)) > 0.7 else "needs_attention"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting proxies overview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/proxies/{proxy_id}", response_model=ProxyConfig)
+async def get_proxy(proxy_id: str):
+    """Get a specific proxy"""
+    try:
+        proxy = await db.proxy_pool.find_one({"id": proxy_id})
+        
+        if not proxy:
+            raise HTTPException(status_code=404, detail="Proxy not found")
+        
+        return ProxyConfig(**proxy)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting proxy {proxy_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/proxies/{proxy_id}/status")
+async def update_proxy_status(proxy_id: str, request: ProxyStatusUpdate):
+    """Update proxy status (active, disabled, banned, maintenance)"""
+    try:
+        # Validate status
+        valid_statuses = ["active", "disabled", "banned", "maintenance"]
+        if request.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        
+        # Update proxy status
+        result = await db.proxy_pool.update_one(
+            {"id": proxy_id},
+            {
+                "$set": {
+                    "status": request.status,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Proxy not found")
+        
+        # Get updated proxy
+        updated_proxy = await db.proxy_pool.find_one({"id": proxy_id})
+        
+        await send_discord_notification(f"🔄 **Proxy Status Updated** \n🌐 IP: {updated_proxy['ip']}:{updated_proxy['port']}\n📊 Status: {request.status}")
+        
+        return ProxyConfig(**updated_proxy)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating proxy status {proxy_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/proxies/health-check")
+async def run_proxy_health_check(request: ProxyHealthCheckRequest = ProxyHealthCheckRequest()):
+    """Run health check on proxies"""
+    try:
+        checked_proxies = []
+        failed_proxies = []
+        
+        if request.proxy_id:
+            # Check specific proxy
+            proxy_doc = await db.proxy_pool.find_one({"id": request.proxy_id})
+            if not proxy_doc:
+                raise HTTPException(status_code=404, detail="Proxy not found")
+            
+            proxy = ProxyConfig(**proxy_doc)
+            is_healthy = await check_proxy_health(proxy)
+            
+            checked_proxies.append({
+                "proxy_id": proxy.id,
+                "ip": f"{proxy.ip}:{proxy.port}",
+                "healthy": is_healthy
+            })
+            
+            if not is_healthy:
+                failed_proxies.append(proxy.id)
+        else:
+            # Check all active proxies
+            active_proxies = await db.proxy_pool.find({"status": "active"}).to_list(100)
+            
+            for proxy_doc in active_proxies:
+                proxy = ProxyConfig(**proxy_doc)
+                is_healthy = await check_proxy_health(proxy)
+                
+                checked_proxies.append({
+                    "proxy_id": proxy.id,
+                    "ip": f"{proxy.ip}:{proxy.port}",
+                    "healthy": is_healthy
+                })
+                
+                if not is_healthy:
+                    failed_proxies.append(proxy.id)
+        
+        health_summary = {
+            "total_checked": len(checked_proxies),
+            "healthy_count": len([p for p in checked_proxies if p["healthy"]]),
+            "unhealthy_count": len(failed_proxies),
+            "checked_proxies": checked_proxies,
+            "failed_proxy_ids": failed_proxies
+        }
+        
+        if failed_proxies:
+            await send_discord_notification(f"⚠️ **Proxy Health Check** \n❌ Failed: {len(failed_proxies)}/{len(checked_proxies)} proxies\n🔧 Action needed for unhealthy proxies")
+        
+        return health_summary
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running proxy health check: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/proxies/{proxy_id}")
+async def delete_proxy(proxy_id: str):
+    """Delete a proxy from the pool"""
+    try:
+        result = await db.proxy_pool.delete_one({"id": proxy_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Proxy not found")
+        
+        await send_discord_notification(f"🗑️ **Proxy Deleted** \n🆔 ID: {proxy_id}")
+        
+        return {"message": "Proxy deleted successfully", "proxy_id": proxy_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting proxy {proxy_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Include the router in the main app
 app.include_router(api_router)
 
