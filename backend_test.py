@@ -50,7 +50,468 @@ class YouTubeAccountManagementTester:
             self.log_test("Backend Connectivity", False, f"Connection error: {str(e)}")
             return False
     
-    def test_text_email_extraction_endpoint(self):
+    def test_account_management_crud_operations(self):
+        """Test all CRUD operations for YouTube account management"""
+        print("\n🔧 Testing Account Management CRUD Operations...")
+        
+        # Test data for accounts
+        test_accounts = [
+            {
+                "email": f"test_account_1_{uuid.uuid4().hex[:8]}@gmail.com",
+                "password": "test_password_123",
+                "ip_address": "192.168.1.100",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            },
+            {
+                "email": f"test_account_2_{uuid.uuid4().hex[:8]}@gmail.com", 
+                "password": "test_password_456",
+                "ip_address": "192.168.1.101",
+                "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+            },
+            {
+                "email": f"test_account_3_{uuid.uuid4().hex[:8]}@gmail.com",
+                "password": "test_password_789",
+                "ip_address": "192.168.1.102", 
+                "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+            }
+        ]
+        
+        created_account_ids = []
+        
+        # Test 1: POST /api/accounts/add - Add new accounts
+        for i, account_data in enumerate(test_accounts):
+            try:
+                response = requests.post(f"{self.backend_url}/accounts/add", json=account_data, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    account_id = data.get("id")
+                    created_account_ids.append(account_id)
+                    
+                    # Verify all fields are present
+                    required_fields = ["id", "email", "password", "status", "created_at", "updated_at"]
+                    missing_fields = [field for field in required_fields if field not in data]
+                    
+                    if not missing_fields and data.get("status") == "active":
+                        self.log_test(f"Add Account {i+1}", True, 
+                                    f"Account created successfully with ID: {account_id}", data)
+                    else:
+                        self.log_test(f"Add Account {i+1}", False, 
+                                    f"Missing fields: {missing_fields} or incorrect status", data)
+                else:
+                    self.log_test(f"Add Account {i+1}", False, 
+                                f"HTTP {response.status_code}: {response.text}")
+                    
+            except Exception as e:
+                self.log_test(f"Add Account {i+1}", False, f"Request error: {str(e)}")
+            
+            time.sleep(0.5)
+        
+        # Test 2: GET /api/accounts - List all accounts
+        try:
+            response = requests.get(f"{self.backend_url}/accounts", timeout=10)
+            
+            if response.status_code == 200:
+                accounts = response.json()
+                
+                if isinstance(accounts, list) and len(accounts) >= len(created_account_ids):
+                    # Check if our created accounts are in the list
+                    account_ids_in_list = [acc.get("id") for acc in accounts]
+                    found_accounts = [acc_id for acc_id in created_account_ids if acc_id in account_ids_in_list]
+                    
+                    if len(found_accounts) == len(created_account_ids):
+                        self.log_test("List All Accounts", True, 
+                                    f"Found {len(accounts)} accounts including all {len(created_account_ids)} created accounts")
+                    else:
+                        self.log_test("List All Accounts", False, 
+                                    f"Missing some created accounts. Found {len(found_accounts)}/{len(created_account_ids)}")
+                else:
+                    self.log_test("List All Accounts", False, 
+                                f"Expected list with at least {len(created_account_ids)} accounts, got: {type(accounts)}")
+            else:
+                self.log_test("List All Accounts", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("List All Accounts", False, f"Request error: {str(e)}")
+        
+        # Test 3: GET /api/accounts/{account_id} - Get specific account
+        if created_account_ids:
+            test_account_id = created_account_ids[0]
+            try:
+                response = requests.get(f"{self.backend_url}/accounts/{test_account_id}", timeout=10)
+                
+                if response.status_code == 200:
+                    account = response.json()
+                    
+                    if account.get("id") == test_account_id and account.get("email"):
+                        self.log_test("Get Specific Account", True, 
+                                    f"Successfully retrieved account: {account.get('email')}")
+                    else:
+                        self.log_test("Get Specific Account", False, 
+                                    f"Account data mismatch or missing fields")
+                else:
+                    self.log_test("Get Specific Account", False, 
+                                f"HTTP {response.status_code}: {response.text}")
+                    
+            except Exception as e:
+                self.log_test("Get Specific Account", False, f"Request error: {str(e)}")
+        
+        # Test 4: PUT /api/accounts/{account_id}/status - Update account status
+        if created_account_ids:
+            test_account_id = created_account_ids[1] if len(created_account_ids) > 1 else created_account_ids[0]
+            status_updates = ["rate_limited", "banned", "maintenance", "active"]
+            
+            for status in status_updates:
+                try:
+                    response = requests.put(f"{self.backend_url}/accounts/{test_account_id}/status", 
+                                          json={"status": status}, timeout=10)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if "updated" in data.get("message", "").lower():
+                            self.log_test(f"Update Status to {status}", True, 
+                                        f"Status updated successfully: {data.get('message')}")
+                        else:
+                            self.log_test(f"Update Status to {status}", False, 
+                                        f"Unexpected response: {data}")
+                    else:
+                        self.log_test(f"Update Status to {status}", False, 
+                                    f"HTTP {response.status_code}: {response.text}")
+                        
+                except Exception as e:
+                    self.log_test(f"Update Status to {status}", False, f"Request error: {str(e)}")
+                
+                time.sleep(0.3)
+        
+        # Test 5: DELETE /api/accounts/{account_id} - Delete account
+        if created_account_ids:
+            # Delete the last account to test deletion
+            delete_account_id = created_account_ids[-1]
+            try:
+                response = requests.delete(f"{self.backend_url}/accounts/{delete_account_id}", timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if "deleted" in data.get("message", "").lower():
+                        self.log_test("Delete Account", True, 
+                                    f"Account deleted successfully: {data.get('message')}")
+                        created_account_ids.remove(delete_account_id)  # Remove from tracking
+                    else:
+                        self.log_test("Delete Account", False, 
+                                    f"Unexpected response: {data}")
+                else:
+                    self.log_test("Delete Account", False, 
+                                f"HTTP {response.status_code}: {response.text}")
+                    
+            except Exception as e:
+                self.log_test("Delete Account", False, f"Request error: {str(e)}")
+        
+        return created_account_ids  # Return remaining account IDs for other tests
+    
+    def test_account_rotation_logic(self):
+        """Test account rotation and availability logic"""
+        print("\n🔄 Testing Account Rotation Logic...")
+        
+        # Test 1: GET /api/accounts/available - Get next available account
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/available", timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("account_found"):
+                    account_info = {
+                        "account_id": data.get("account_id"),
+                        "account_email": data.get("account_email"),
+                        "status": data.get("status"),
+                        "daily_requests": data.get("daily_requests"),
+                        "success_rate": data.get("success_rate")
+                    }
+                    
+                    # Verify account is active and under daily limit
+                    if (data.get("status") == "active" and 
+                        isinstance(data.get("daily_requests"), int) and 
+                        data.get("daily_requests") < 100):  # MAX_DAILY_REQUESTS_PER_ACCOUNT
+                        
+                        self.log_test("Get Available Account", True, 
+                                    f"Found available account: {data.get('account_email')} "
+                                    f"(Daily requests: {data.get('daily_requests')}, "
+                                    f"Success rate: {data.get('success_rate')}%)", account_info)
+                    else:
+                        self.log_test("Get Available Account", False, 
+                                    f"Account found but doesn't meet availability criteria: {account_info}")
+                else:
+                    # No available accounts - this could be valid if no accounts exist
+                    message = data.get("message", "No message provided")
+                    self.log_test("Get Available Account", True, 
+                                f"No available accounts found: {message}")
+            else:
+                self.log_test("Get Available Account", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Get Available Account", False, f"Request error: {str(e)}")
+    
+    def test_account_statistics_overview(self):
+        """Test account statistics and overview endpoint"""
+        print("\n📊 Testing Account Statistics Overview...")
+        
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/stats/overview", timeout=10)
+            
+            if response.status_code == 200:
+                stats = response.json()
+                
+                # Check required fields
+                required_fields = [
+                    "total_accounts", "active_accounts", "banned_accounts", 
+                    "rate_limited_accounts", "high_usage_accounts",
+                    "max_daily_requests_per_account", "max_concurrent_accounts"
+                ]
+                
+                missing_fields = [field for field in required_fields if field not in stats]
+                
+                if not missing_fields:
+                    # Verify data consistency
+                    total = stats.get("total_accounts", 0)
+                    active = stats.get("active_accounts", 0)
+                    banned = stats.get("banned_accounts", 0)
+                    rate_limited = stats.get("rate_limited_accounts", 0)
+                    
+                    # Basic validation: active + banned + rate_limited should not exceed total
+                    if active + banned + rate_limited <= total:
+                        self.log_test("Account Statistics Overview", True, 
+                                    f"Statistics retrieved successfully - Total: {total}, "
+                                    f"Active: {active}, Banned: {banned}, Rate Limited: {rate_limited}", stats)
+                    else:
+                        self.log_test("Account Statistics Overview", False, 
+                                    f"Data inconsistency: sum of status counts exceeds total", stats)
+                else:
+                    self.log_test("Account Statistics Overview", False, 
+                                f"Missing required fields: {missing_fields}", stats)
+            else:
+                self.log_test("Account Statistics Overview", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Account Statistics Overview", False, f"Request error: {str(e)}")
+    
+    def test_database_schema_validation(self):
+        """Test MongoDB integration and schema validation"""
+        print("\n🗄️ Testing Database Schema Validation...")
+        
+        # Create a test account to verify schema
+        test_account = {
+            "email": f"schema_test_{uuid.uuid4().hex[:8]}@gmail.com",
+            "password": "schema_test_password",
+            "ip_address": "10.0.0.1",
+            "user_agent": "Schema Test User Agent"
+        }
+        
+        try:
+            # Create account
+            response = requests.post(f"{self.backend_url}/accounts/add", json=test_account, timeout=10)
+            
+            if response.status_code == 200:
+                account_data = response.json()
+                account_id = account_data.get("id")
+                
+                # Verify all expected schema fields are present
+                expected_fields = [
+                    "id", "email", "password", "status", "last_used", "rate_limit_reset",
+                    "daily_requests_count", "total_requests_count", "session_data",
+                    "ip_address", "user_agent", "cookies", "success_rate", "last_error",
+                    "created_at", "updated_at"
+                ]
+                
+                present_fields = list(account_data.keys())
+                missing_fields = [field for field in expected_fields if field not in present_fields]
+                
+                # Verify data types
+                type_checks = [
+                    ("id", str), ("email", str), ("password", str), ("status", str),
+                    ("daily_requests_count", int), ("total_requests_count", int),
+                    ("success_rate", (int, float)), ("ip_address", str), ("user_agent", str)
+                ]
+                
+                type_errors = []
+                for field, expected_type in type_checks:
+                    if field in account_data:
+                        if not isinstance(account_data[field], expected_type):
+                            type_errors.append(f"{field}: expected {expected_type}, got {type(account_data[field])}")
+                
+                if not missing_fields and not type_errors:
+                    self.log_test("Database Schema Validation", True, 
+                                f"All schema fields present with correct types", account_data)
+                else:
+                    error_msg = f"Missing fields: {missing_fields}, Type errors: {type_errors}"
+                    self.log_test("Database Schema Validation", False, error_msg, account_data)
+                
+                # Clean up test account
+                try:
+                    requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=10)
+                except:
+                    pass  # Cleanup failure is not critical for this test
+                    
+            else:
+                self.log_test("Database Schema Validation", False, 
+                            f"Failed to create test account: HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Database Schema Validation", False, f"Request error: {str(e)}")
+    
+    def test_environment_configuration(self):
+        """Test environment configuration and settings"""
+        print("\n⚙️ Testing Environment Configuration...")
+        
+        # Test account statistics to verify environment variables are loaded
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/stats/overview", timeout=10)
+            
+            if response.status_code == 200:
+                stats = response.json()
+                
+                # Check if environment variables are properly loaded
+                max_daily = stats.get("max_daily_requests_per_account")
+                max_concurrent = stats.get("max_concurrent_accounts")
+                
+                # Expected values from environment (from backend/.env)
+                expected_max_daily = 100
+                expected_max_concurrent = 3
+                
+                if max_daily == expected_max_daily and max_concurrent == expected_max_concurrent:
+                    self.log_test("Environment Configuration", True, 
+                                f"Environment variables loaded correctly - "
+                                f"Max daily: {max_daily}, Max concurrent: {max_concurrent}")
+                else:
+                    self.log_test("Environment Configuration", False, 
+                                f"Environment variables mismatch - "
+                                f"Expected daily: {expected_max_daily}, got: {max_daily}, "
+                                f"Expected concurrent: {expected_max_concurrent}, got: {max_concurrent}")
+            else:
+                self.log_test("Environment Configuration", False, 
+                            f"Could not retrieve configuration: HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Environment Configuration", False, f"Request error: {str(e)}")
+    
+    def test_integration_with_existing_system(self):
+        """Test integration with existing lead generation system"""
+        print("\n🔗 Testing Integration with Existing System...")
+        
+        # Test 1: Verify existing endpoints still work
+        existing_endpoints = [
+            ("/", "Root endpoint"),
+            ("/leads/main", "Main leads endpoint"),
+            ("/leads/no-email", "No-email leads endpoint"),
+            ("/settings/email-sending", "Email settings endpoint")
+        ]
+        
+        for endpoint, description in existing_endpoints:
+            try:
+                response = requests.get(f"{self.backend_url}{endpoint}", timeout=10)
+                
+                if response.status_code == 200:
+                    self.log_test(f"Existing System - {description}", True, 
+                                f"Endpoint accessible: {endpoint}")
+                else:
+                    self.log_test(f"Existing System - {description}", False, 
+                                f"HTTP {response.status_code} for {endpoint}")
+                    
+            except Exception as e:
+                self.log_test(f"Existing System - {description}", False, 
+                            f"Request error for {endpoint}: {str(e)}")
+            
+            time.sleep(0.3)
+    
+    def test_error_handling_and_validation(self):
+        """Test error handling and input validation"""
+        print("\n⚠️ Testing Error Handling and Validation...")
+        
+        # Test 1: Duplicate account creation
+        duplicate_email = f"duplicate_test_{uuid.uuid4().hex[:8]}@gmail.com"
+        account_data = {
+            "email": duplicate_email,
+            "password": "test_password",
+            "ip_address": "192.168.1.200"
+        }
+        
+        try:
+            # Create first account
+            response1 = requests.post(f"{self.backend_url}/accounts/add", json=account_data, timeout=10)
+            
+            if response1.status_code == 200:
+                account_id = response1.json().get("id")
+                
+                # Try to create duplicate
+                response2 = requests.post(f"{self.backend_url}/accounts/add", json=account_data, timeout=10)
+                
+                if response2.status_code == 400:
+                    self.log_test("Duplicate Account Prevention", True, 
+                                "Correctly prevented duplicate account creation")
+                else:
+                    self.log_test("Duplicate Account Prevention", False, 
+                                f"Should have returned 400, got: {response2.status_code}")
+                
+                # Cleanup
+                try:
+                    requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=10)
+                except:
+                    pass
+            else:
+                self.log_test("Duplicate Account Prevention", False, 
+                            "Could not create initial account for duplicate test")
+                
+        except Exception as e:
+            self.log_test("Duplicate Account Prevention", False, f"Request error: {str(e)}")
+        
+        # Test 2: Invalid status update
+        try:
+            # Try to update with invalid status
+            response = requests.put(f"{self.backend_url}/accounts/nonexistent_id/status", 
+                                  json={"status": "invalid_status"}, timeout=10)
+            
+            if response.status_code in [400, 404]:
+                self.log_test("Invalid Status Update", True, 
+                            f"Correctly rejected invalid status: HTTP {response.status_code}")
+            else:
+                self.log_test("Invalid Status Update", False, 
+                            f"Should have returned 400/404, got: {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Invalid Status Update", False, f"Request error: {str(e)}")
+        
+        # Test 3: Non-existent account operations
+        fake_id = "nonexistent_account_id"
+        
+        operations = [
+            ("GET", f"/accounts/{fake_id}", "Get non-existent account"),
+            ("PUT", f"/accounts/{fake_id}/status", "Update non-existent account"),
+            ("DELETE", f"/accounts/{fake_id}", "Delete non-existent account")
+        ]
+        
+        for method, endpoint, description in operations:
+            try:
+                if method == "GET":
+                    response = requests.get(f"{self.backend_url}{endpoint}", timeout=10)
+                elif method == "PUT":
+                    response = requests.put(f"{self.backend_url}{endpoint}", 
+                                          json={"status": "active"}, timeout=10)
+                elif method == "DELETE":
+                    response = requests.delete(f"{self.backend_url}{endpoint}", timeout=10)
+                
+                if response.status_code == 404:
+                    self.log_test(f"Error Handling - {description}", True, 
+                                "Correctly returned 404 for non-existent account")
+                else:
+                    self.log_test(f"Error Handling - {description}", False, 
+                                f"Should have returned 404, got: {response.status_code}")
+                    
+            except Exception as e:
+                self.log_test(f"Error Handling - {description}", False, f"Request error: {str(e)}")
+            
+            time.sleep(0.2)
         """Test the debug text email extraction endpoint with various email formats"""
         test_cases = [
             {
