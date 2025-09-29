@@ -890,7 +890,8 @@ async def process_lead_generation(status_id: str, request: LeadGenerationRequest
                     
                     await process_channel_with_email(channel)
                     
-                    if channel.email_subject and channel.email_body_preview:
+                    # Check global email sending setting
+                    if SEND_EMAILS_ENABLED and channel.email_subject and channel.email_body_preview:
                         email_sent = await send_email(
                             email, 
                             channel.email_subject, 
@@ -904,6 +905,10 @@ async def process_lead_generation(status_id: str, request: LeadGenerationRequest
                             await send_discord_notification(f"✉️ **Email Sent!** Client outreach sent to **{channel.channel_title}**")
                         else:
                             channel.email_sent_status = "failed"
+                    elif not SEND_EMAILS_ENABLED and channel.email_subject and channel.email_body_preview:
+                        # Email sending disabled, but still store as prepared
+                        channel.email_sent_status = "prepared_not_sent"
+                        await send_discord_notification(f"📋 **Email Prepared!** (Sending disabled) Client outreach prepared for **{channel.channel_title}**")
                     
                     await db.main_leads.insert_one(channel.dict())
                     
