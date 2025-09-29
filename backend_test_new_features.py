@@ -459,8 +459,11 @@ class NewFeaturesTester:
                 if test_case["method"] == "GET":
                     response = requests.get(f"{self.backend_url}{test_case['endpoint']}", timeout=10)
                 else:
-                    response = requests.post(f"{self.backend_url}{test_case['endpoint']}", 
-                                           json=test_case["payload"], timeout=10)
+                    if "payload" in test_case:
+                        response = requests.post(f"{self.backend_url}{test_case['endpoint']}", 
+                                               json=test_case["payload"], timeout=10)
+                    else:
+                        response = requests.post(f"{self.backend_url}{test_case['endpoint']}", timeout=10)
                 
                 if test_case["should_fail"]:
                     if response.status_code >= 400:
