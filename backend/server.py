@@ -2248,6 +2248,226 @@ async def delete_proxy(proxy_id: str):
         logger.error(f"Error deleting proxy {proxy_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Queue Management API Routes
+@api_router.post("/queue/add", response_model=dict)
+async def add_request_to_queue(request: AddToQueueRequest):
+    """Add a new request to the scraping queue"""
+    try:
+        request_id = await add_to_queue(
+            channel_id=request.channel_id,
+            request_type=request.request_type,
+            priority=request.priority,
+            payload=request.payload
+        )
+        
+        return {
+            "message": "Request added to queue successfully",
+            "request_id": request_id,
+            "channel_id": request.channel_id,
+            "status": "pending"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding request to queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/queue/batch", response_model=dict)
+async def add_batch_to_queue(request: QueueBatchRequest):
+    """Add multiple requests to the scraping queue"""
+    try:
+        request_ids = []
+        
+        for channel_id in request.channel_ids:
+            request_id = await add_to_queue(
+                channel_id=channel_id,
+                request_type=request.request_type,
+                priority=request.priority,
+                payload=request.payload
+            )
+            request_ids.append({"channel_id": channel_id, "request_id": request_id})
+        
+        return {
+            "message": f"Added {len(request_ids)} requests to queue successfully",
+            "requests": request_ids,
+            "status": "pending"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding batch to queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/queue/next")
+async def get_next_request():
+    """Get the next available request from queue for processing"""
+    try:
+        # Get available account
+        account = await get_available_account()
+        if not account:
+            return {
+                "message": "No available accounts for processing",
+                "request": None,
+                "account": None
+            }
+        
+        # Get next request
+        request = await get_next_queue_request(account.id)
+        if not request:
+            return {
+                "message": "No pending requests in queue",
+                "request": None,
+                "account": account.dict()
+            }
+        
+        return {
+            "message": "Request assigned for processing",
+            "request": request.dict(),
+            "account": account.dict()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting next request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/queue/stats")
+async def get_queue_statistics():
+    """Get queue statistics and overview"""
+    try:
+        stats = await get_queue_stats()
+        return {
+            "message": "Queue statistics retrieved successfully",
+            "stats": stats,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting queue statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/queue", response_model=List[QueueRequest])
+async def get_queue_requests(
+    status: Optional[str] = None,
+    limit: int = 100,
+    skip: int = 0
+):
+    """Get queue requests with optional filtering"""
+    try:
+        query = {}
+        if status:
+            query["status"] = status
+        
+        requests_cursor = db.scraping_queue.find(query).sort("created_at", -1).skip(skip).limit(limit)
+        requests = await requests_cursor.to_list(limit)
+        
+        return [QueueRequest(**req) for req in requests]
+        
+    except Exception as e:
+        logger.error(f"Error getting queue requests: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/queue/{request_id}", response_model=QueueRequest)
+async def get_queue_request(request_id: str):
+    """Get a specific queue request by ID"""
+    try:
+        request_data = await db.scraping_queue.find_one({"id": request_id})
+        if not request_data:
+            raise HTTPException(status_code=404, detail="Queue request not found")
+        
+        return QueueRequest(**request_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting queue request {request_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/queue/{request_id}/status")
+async def update_queue_request_status(request_id: str, request: QueueStatusUpdate):
+    """Update queue request status (for manual management)"""
+    try:
+        if request.status == "completed":
+            await complete_queue_request(request_id, success=True)
+        elif request.status == "failed":
+            await complete_queue_request(request_id, success=False, error_message=request.error_message)
+        else:
+            # Direct status update
+            await db.scraping_queue.update_one(
+                {"id": request_id},
+                {
+                    "$set": {
+                        "status": request.status,
+                        "error_message": request.error_message,
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+        
+        updated_request = await db.scraping_queue.find_one({"id": request_id})
+        if not updated_request:
+            raise HTTPException(status_code=404, detail="Queue request not found")
+        
+        return {
+            "message": "Queue request status updated successfully",
+            "request": QueueRequest(**updated_request).dict()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating queue request status {request_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/queue/process")
+async def process_queue_manually():
+    """Manually trigger queue processing"""
+    try:
+        await process_queue_batch()
+        
+        return {
+            "message": "Queue processing triggered successfully",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing queue manually: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/queue/{request_id}")
+async def delete_queue_request(request_id: str):
+    """Delete a specific queue request"""
+    try:
+        result = await db.scraping_queue.delete_one({"id": request_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Queue request not found")
+        
+        await send_discord_notification(f"🗑️ **Queue Request Deleted** \n🆔 Request ID: {request_id}")
+        
+        return {
+            "message": "Queue request deleted successfully",
+            "request_id": request_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting queue request {request_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/queue/cleanup")
+async def cleanup_queue():
+    """Clean up old completed/failed requests"""
+    try:
+        await cleanup_old_queue_requests()
+        
+        return {
+            "message": "Queue cleanup completed successfully",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Include the router in the main app
 app.include_router(api_router)
 
