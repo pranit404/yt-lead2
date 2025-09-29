@@ -160,6 +160,34 @@ class ProcessingStatus(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class YouTubeAccount(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    email: str
+    password: str
+    status: str = "active"  # active, banned, rate_limited, maintenance
+    last_used: Optional[datetime] = None
+    rate_limit_reset: Optional[datetime] = None
+    daily_requests_count: int = 0
+    total_requests_count: int = 0
+    session_data: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    cookies: Optional[Dict[str, Any]] = None
+    success_rate: float = 100.0
+    last_error: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+class AccountRotationRequest(BaseModel):
+    force_new: bool = False
+    preferred_account_id: Optional[str] = None
+
+class AccountAddRequest(BaseModel):
+    email: str
+    password: str
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
 # Utility Functions
 async def send_discord_notification(message: str):
     """Send notification to Discord webhook"""
