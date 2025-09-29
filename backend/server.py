@@ -354,6 +354,182 @@ async def reset_daily_limits():
     except Exception as e:
         logger.error(f"Error resetting daily limits: {e}")
 
+# Proxy Management Functions
+async def get_available_proxy() -> Optional[ProxyConfig]:
+    """Get an available proxy for scraping"""
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Find proxies that are active and not overloaded
+        proxies_cursor = db.proxy_pool.find({
+            "status": "active",
+            "health_status": {"$in": ["healthy", "unknown"]},
+            "daily_requests_count": {"$lt": MAX_DAILY_REQUESTS_PER_PROXY},
+            "$or": [
+                {"last_used": None},
+                {"last_used": {"$lt": now - timedelta(minutes=PROXY_COOLDOWN_MINUTES)}}
+            ]
+        }).sort([("success_rate", -1), ("last_used", 1)]).limit(1)
+        
+        proxies = await proxies_cursor.to_list(1)
+        
+        if proxies:
+            proxy_doc = proxies[0]
+            # Reset daily count if it's a new day
+            if proxy_doc.get('last_used'):
+                last_used = proxy_doc['last_used']
+                if isinstance(last_used, str):
+                    last_used = parser.parse(last_used)
+                if now.date() > last_used.date():
+                    proxy_doc['daily_requests_count'] = 0
+            
+            return ProxyConfig(**proxy_doc)
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error getting available proxy: {e}")
+        return None
+
+async def update_proxy_usage(proxy_id: str, success: bool = True, response_time: float = 0.0, error_message: str = None):
+    """Update proxy usage statistics"""
+    try:
+        now = datetime.now(timezone.utc)
+        update_data = {
+            "last_used": now,
+            "updated_at": now,
+            "$inc": {
+                "daily_requests_count": 1,
+                "total_requests_count": 1
+            }
+        }
+        
+        if error_message:
+            update_data["last_error"] = error_message
+            
+        # Update success rate and average response time
+        proxy_doc = await db.proxy_pool.find_one({"id": proxy_id})
+        if proxy_doc:
+            current_rate = proxy_doc.get('success_rate', 100.0)
+            current_response_time = proxy_doc.get('response_time_avg', 0.0)
+            total_requests = proxy_doc.get('total_requests_count', 0)
+            
+            # Simple weighted average for success rate
+            if total_requests > 0:
+                weight = min(0.1, 1.0 / total_requests)  # 10% max weight for new result
+                new_rate = current_rate * (1 - weight) + (100.0 if success else 0.0) * weight
+                update_data["success_rate"] = round(new_rate, 2)
+            
+            # Update average response time
+            if response_time > 0:
+                if total_requests > 0:
+                    new_response_time = (current_response_time * total_requests + response_time) / (total_requests + 1)
+                    update_data["response_time_avg"] = round(new_response_time, 3)
+                else:
+                    update_data["response_time_avg"] = response_time
+        
+        await db.proxy_pool.update_one(
+            {"id": proxy_id},
+            {"$set": update_data}
+        )
+        
+        logger.info(f"Updated proxy {proxy_id} usage. Success: {success}, Response time: {response_time}s")
+        
+    except Exception as e:
+        logger.error(f"Error updating proxy usage for {proxy_id}: {e}")
+
+async def check_proxy_health(proxy: ProxyConfig) -> bool:
+    """Check if a proxy is healthy by making a test request"""
+    try:
+        proxy_url = f"{proxy.protocol}://"
+        if proxy.username and proxy.password:
+            proxy_url += f"{proxy.username}:{proxy.password}@"
+        proxy_url += f"{proxy.ip}:{proxy.port}"
+        
+        # Test the proxy with a simple HTTP request
+        start_time = datetime.now()
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://httpbin.org/ip",
+                proxy=proxy_url,
+                timeout=aiohttp.ClientTimeout(total=PROXY_HEALTH_CHECK_TIMEOUT)
+            ) as response:
+                end_time = datetime.now()
+                response_time = (end_time - start_time).total_seconds()
+                
+                if response.status == 200:
+                    # Update proxy health status
+                    await db.proxy_pool.update_one(
+                        {"id": proxy.id},
+                        {
+                            "$set": {
+                                "health_status": "healthy",
+                                "last_health_check": datetime.now(timezone.utc),
+                                "response_time_avg": response_time,
+                                "last_error": None,
+                                "updated_at": datetime.now(timezone.utc)
+                            }
+                        }
+                    )
+                    logger.info(f"Proxy {proxy.id} health check passed. Response time: {response_time}s")
+                    return True
+                else:
+                    raise Exception(f"HTTP {response.status}")
+    
+    except Exception as e:
+        error_message = f"Health check failed: {str(e)}"
+        # Mark proxy as unhealthy
+        await db.proxy_pool.update_one(
+            {"id": proxy.id},
+            {
+                "$set": {
+                    "health_status": "unhealthy",
+                    "last_health_check": datetime.now(timezone.utc),
+                    "last_error": error_message,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        logger.warning(f"Proxy {proxy.id} health check failed: {error_message}")
+        return False
+
+async def mark_proxy_banned(proxy_id: str, reason: str = "Detected as banned"):
+    """Mark a proxy as banned"""
+    try:
+        await db.proxy_pool.update_one(
+            {"id": proxy_id},
+            {
+                "$set": {
+                    "status": "banned",
+                    "health_status": "unhealthy",
+                    "last_error": reason,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        await send_discord_notification(f"🚫 **Proxy Banned** \n🔗 Proxy: {proxy_id}\n💬 Reason: {reason}")
+        logger.warning(f"Marked proxy {proxy_id} as banned: {reason}")
+        
+    except Exception as e:
+        logger.error(f"Error marking proxy as banned {proxy_id}: {e}")
+
+async def reset_proxy_daily_limits():
+    """Reset daily request counts for all proxies (should be called daily)"""
+    try:
+        await db.proxy_pool.update_many(
+            {},
+            {
+                "$set": {
+                    "daily_requests_count": 0,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        logger.info("Daily limits reset for all proxies")
+    except Exception as e:
+        logger.error(f"Error resetting proxy daily limits: {e}")
+
 def get_youtube_service():
     """Get YouTube API service with key rotation"""
     global current_key_index
