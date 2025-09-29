@@ -1289,6 +1289,148 @@ async def toggle_email_sending(enabled: bool):
         "message": f"Email sending {'enabled' if enabled else 'disabled'} successfully"
     }
 
+# YouTube Account Management API Routes
+@api_router.post("/accounts/add", response_model=YouTubeAccount)
+async def add_youtube_account(request: AccountAddRequest):
+    """Add a new YouTube account for scraping"""
+    try:
+        # Check if account already exists
+        existing = await db.youtube_accounts.find_one({"email": request.email})
+        if existing:
+            raise HTTPException(status_code=400, detail="Account with this email already exists")
+        
+        account = YouTubeAccount(
+            email=request.email,
+            password=request.password,
+            ip_address=request.ip_address,
+            user_agent=request.user_agent
+        )
+        
+        await db.youtube_accounts.insert_one(account.dict())
+        
+        await send_discord_notification(f"✅ **New YouTube Account Added** \n📧 Email: {account.email}\n🆔 ID: {account.id}")
+        
+        logger.info(f"Added new YouTube account: {account.email}")
+        return account
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding YouTube account: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts", response_model=List[YouTubeAccount])
+async def get_youtube_accounts():
+    """Get all YouTube accounts"""
+    try:
+        accounts = await db.youtube_accounts.find().to_list(1000)
+        return [YouTubeAccount(**account) for account in accounts]
+    except Exception as e:
+        logger.error(f"Error getting YouTube accounts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts/{account_id}", response_model=YouTubeAccount)
+async def get_youtube_account(account_id: str):
+    """Get a specific YouTube account"""
+    try:
+        account = await db.youtube_accounts.find_one({"id": account_id})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        return YouTubeAccount(**account)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting YouTube account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/accounts/{account_id}/status")
+async def update_account_status(account_id: str, status: str):
+    """Update account status (active, banned, rate_limited, maintenance)"""
+    try:
+        valid_statuses = ["active", "banned", "rate_limited", "maintenance"]
+        if status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        
+        result = await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "status": status,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        await send_discord_notification(f"🔄 **Account Status Updated** \n🆔 ID: {account_id}\n📊 Status: {status}")
+        
+        return {"message": f"Account status updated to {status}", "account_id": account_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating account status {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/accounts/{account_id}")
+async def delete_youtube_account(account_id: str):
+    """Delete a YouTube account"""
+    try:
+        result = await db.youtube_accounts.delete_one({"id": account_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        await send_discord_notification(f"🗑️ **Account Deleted** \n🆔 ID: {account_id}")
+        
+        return {"message": "Account deleted successfully", "account_id": account_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts/stats/overview")
+async def get_accounts_overview():
+    """Get overview statistics of all accounts"""
+    try:
+        total_accounts = await db.youtube_accounts.count_documents({})
+        active_accounts = await db.youtube_accounts.count_documents({"status": "active"})
+        banned_accounts = await db.youtube_accounts.count_documents({"status": "banned"})
+        rate_limited = await db.youtube_accounts.count_documents({"status": "rate_limited"})
+        
+        # Get accounts with high usage today
+        today = datetime.now(timezone.utc).date()
+        high_usage = await db.youtube_accounts.count_documents({
+            "daily_requests_count": {"$gte": MAX_DAILY_REQUESTS_PER_ACCOUNT * 0.8}
+        })
+        
+        return {
+            "total_accounts": total_accounts,
+            "active_accounts": active_accounts,
+            "banned_accounts": banned_accounts,
+            "rate_limited_accounts": rate_limited,
+            "high_usage_accounts": high_usage,
+            "max_daily_requests_per_account": MAX_DAILY_REQUESTS_PER_ACCOUNT,
+            "max_concurrent_accounts": MAX_ACCOUNTS_CONCURRENT
+        }
+    except Exception as e:
+        logger.error(f"Error getting accounts overview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/accounts/reset-daily-limits")
+async def reset_accounts_daily_limits():
+    """Manually reset daily request limits for all accounts"""
+    try:
+        await reset_daily_limits()
+        return {"message": "Daily limits reset for all accounts"}
+    except Exception as e:
+        logger.error(f"Error resetting daily limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Include the router in the main app
 app.include_router(api_router)
 
