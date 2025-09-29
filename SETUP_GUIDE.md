@@ -158,7 +158,7 @@ Example:
 
 ### **Access:** 
 - Local: `http://localhost:3000`
-- Production: `https://email-proxy-system.preview.emergentagent.com`
+- Production: `https://yt-email-extractor.preview.emergentagent.com`
 
 ---
 
