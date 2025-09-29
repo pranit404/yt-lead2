@@ -149,8 +149,7 @@ class NewFeaturesTester:
         """Test that email settings persist after changes"""
         try:
             # First, set to disabled
-            payload = {"enabled": False}
-            requests.post(f"{self.backend_url}/settings/email-sending", json=payload, timeout=10)
+            requests.post(f"{self.backend_url}/settings/email-sending?enabled=false", timeout=10)
             
             # Wait a moment
             time.sleep(1)
