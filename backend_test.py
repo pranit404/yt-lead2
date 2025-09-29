@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 # Backend URL Configuration
 BACKEND_URL = "http://localhost:8001/api"
 
-class EmailExtractionTester:
+class YouTubeAccountManagementTester:
     def __init__(self):
         self.backend_url = BACKEND_URL
         self.test_results = []
