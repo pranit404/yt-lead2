@@ -1826,14 +1826,29 @@ class YouTubeLoginAutomationTester:
 
 def main():
     """Main test execution"""
-    tester = ProxyManagementTester()
+    print("🎯 YouTube Lead Generation Platform - Backend Testing Suite")
+    print("📋 Available Test Suites:")
+    print("  1. YouTube Login Automation (Phase 2 Step 4) - Current Focus")
+    print("  2. Proxy Management System (Phase 1 Step 2)")
+    print("  3. Account Management System (Phase 1 Step 1)")
+    print("=" * 70)
     
-    success = tester.run_all_tests()
+    # Run YouTube Login Automation tests (current focus)
+    print("\n🚀 Running YouTube Login Automation Tests...")
+    login_tester = YouTubeLoginAutomationTester()
+    
+    success = login_tester.run_all_tests()
     if success:
-        overall_success = tester.generate_report()
+        overall_success = login_tester.generate_report()
+        
+        if overall_success:
+            print("\n🎉 YouTube Login Automation System: READY FOR INTEGRATION")
+        else:
+            print("\n⚠️ YouTube Login Automation System: NEEDS ATTENTION")
+        
         sys.exit(0 if overall_success else 1)
     else:
-        print("❌ Tests could not be completed due to connectivity issues")
+        print("\n❌ YouTube Login Automation System: CRITICAL ISSUES")
         sys.exit(1)
 
 if __name__ == "__main__":
