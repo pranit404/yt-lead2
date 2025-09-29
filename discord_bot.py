@@ -462,7 +462,7 @@ async def show_help(ctx):
     
     embed.add_field(
         name="🚀 !start",
-        value="`!start <min_subs> <max_subs> [max_channels] [max_videos] [min_freq] [max_freq] <keywords...>`\nStart lead generation with specified parameters",
+        value="`!start <min_subs> <max_subs> [max_channels] [max_videos] [min_freq] [max_freq] [test_mode] <keywords...>`\nStart lead generation with specified parameters",
         inline=False
     )
     
