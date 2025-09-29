@@ -1201,6 +1201,270 @@ async def send_email(to_email: str, subject: str, html_body: str, plain_body: st
         logger.error(f"Error sending email to {to_email}: {e}")
         return False
 
+# Queue Management Functions
+async def add_to_queue(channel_id: str, request_type: str = "channel_scraping", priority: int = 5, payload: Optional[Dict[str, Any]] = None) -> str:
+    """Add a request to the scraping queue"""
+    try:
+        # Check if request already exists in queue
+        existing = await db.scraping_queue.find_one({
+            "channel_id": channel_id,
+            "status": {"$in": ["pending", "processing", "retry_scheduled"]}
+        })
+        
+        if existing:
+            logger.info(f"Request for channel {channel_id} already exists in queue with status {existing['status']}")
+            return existing["id"]
+        
+        queue_request = QueueRequest(
+            channel_id=channel_id,
+            request_type=request_type,
+            priority=priority,
+            payload=payload or {}
+        )
+        
+        await db.scraping_queue.insert_one(queue_request.dict())
+        
+        # Send Discord notification
+        await send_discord_notification(f"📝 **New Queue Request**\n🆔 Channel: {channel_id}\n📊 Type: {request_type}\n⭐ Priority: {priority}")
+        
+        logger.info(f"Added request {queue_request.id} to queue for channel {channel_id}")
+        return queue_request.id
+        
+    except Exception as e:
+        logger.error(f"Error adding request to queue: {e}")
+        raise
+
+async def get_next_queue_request(account_id: Optional[str] = None) -> Optional[QueueRequest]:
+    """Get the next available request from the queue with rate limiting"""
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # If specific account provided, check its rate limits
+        if account_id:
+            account = await db.youtube_accounts.find_one({"id": account_id})
+            if not account:
+                return None
+                
+            # Check rate limits for this account
+            if await is_account_rate_limited(account_id):
+                logger.info(f"Account {account_id} is rate limited, skipping queue processing")
+                return None
+        
+        # Find pending requests, prioritizing by priority then by scheduled time
+        query = {
+            "status": "pending",
+            "scheduled_time": {"$lte": now},
+            "attempts": {"$lt": QUEUE_RETRY_ATTEMPTS}
+        }
+        
+        # Get highest priority request first
+        requests_cursor = db.scraping_queue.find(query).sort([
+            ("priority", 1),  # Lower number = higher priority
+            ("scheduled_time", 1)  # Earlier first
+        ]).limit(1)
+        
+        requests = await requests_cursor.to_list(1)
+        
+        if requests:
+            request_data = requests[0]
+            request = QueueRequest(**request_data)
+            
+            # Mark as processing
+            await db.scraping_queue.update_one(
+                {"id": request.id},
+                {
+                    "$set": {
+                        "status": "processing",
+                        "processing_started_at": now,
+                        "account_id": account_id,
+                        "updated_at": now
+                    }
+                }
+            )
+            
+            logger.info(f"Assigned queue request {request.id} for processing by account {account_id}")
+            return request
+            
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting next queue request: {e}")
+        return None
+
+async def is_account_rate_limited(account_id: str) -> bool:
+    """Check if account has exceeded hourly rate limits"""
+    try:
+        now = datetime.now(timezone.utc)
+        one_hour_ago = now - timedelta(hours=1)
+        
+        # Count requests in the last hour for this account
+        requests_in_last_hour = await db.scraping_queue.count_documents({
+            "account_id": account_id,
+            "processing_started_at": {"$gte": one_hour_ago},
+            "status": {"$in": ["processing", "completed"]}
+        })
+        
+        return requests_in_last_hour >= MAX_REQUESTS_PER_HOUR_PER_ACCOUNT
+        
+    except Exception as e:
+        logger.error(f"Error checking rate limits for account {account_id}: {e}")
+        return True  # Err on the side of caution
+
+async def complete_queue_request(request_id: str, success: bool = True, error_message: Optional[str] = None):
+    """Mark a queue request as completed or failed"""
+    try:
+        now = datetime.now(timezone.utc)
+        
+        if success:
+            status = "completed"
+            update_data = {
+                "$set": {
+                    "status": status,
+                    "completed_at": now,
+                    "updated_at": now
+                }
+            }
+        else:
+            # Increment attempts
+            request_data = await db.scraping_queue.find_one({"id": request_id})
+            if not request_data:
+                logger.error(f"Queue request {request_id} not found")
+                return
+            
+            attempts = request_data.get("attempts", 0) + 1
+            
+            if attempts >= QUEUE_RETRY_ATTEMPTS:
+                status = "failed"
+                update_data = {
+                    "$set": {
+                        "status": status,
+                        "attempts": attempts,
+                        "error_message": error_message,
+                        "completed_at": now,
+                        "updated_at": now
+                    }
+                }
+            else:
+                # Schedule retry
+                status = "retry_scheduled"
+                retry_time = now + timedelta(minutes=QUEUE_RETRY_DELAY_MINUTES)
+                update_data = {
+                    "$set": {
+                        "status": status,
+                        "attempts": attempts,
+                        "error_message": error_message,
+                        "scheduled_time": retry_time,
+                        "processing_started_at": None,
+                        "account_id": None,
+                        "updated_at": now
+                    }
+                }
+        
+        await db.scraping_queue.update_one({"id": request_id}, update_data)
+        
+        # Send Discord notification
+        if success:
+            await send_discord_notification(f"✅ **Queue Request Completed**\n🆔 Request ID: {request_id}")
+        else:
+            await send_discord_notification(f"❌ **Queue Request Failed**\n🆔 Request ID: {request_id}\n📝 Error: {error_message[:100] if error_message else 'Unknown error'}")
+        
+        logger.info(f"Queue request {request_id} marked as {status}")
+        
+    except Exception as e:
+        logger.error(f"Error completing queue request {request_id}: {e}")
+
+async def get_queue_stats() -> Dict[str, Any]:
+    """Get queue statistics"""
+    try:
+        stats = {}
+        
+        # Count requests by status
+        for status in ["pending", "processing", "completed", "failed", "retry_scheduled"]:
+            count = await db.scraping_queue.count_documents({"status": status})
+            stats[f"{status}_requests"] = count
+        
+        # Total requests
+        total_requests = await db.scraping_queue.count_documents({})
+        stats["total_requests"] = total_requests
+        
+        # Rate limiting stats
+        now = datetime.now(timezone.utc)
+        one_hour_ago = now - timedelta(hours=1)
+        
+        requests_last_hour = await db.scraping_queue.count_documents({
+            "processing_started_at": {"$gte": one_hour_ago}
+        })
+        stats["requests_last_hour"] = requests_last_hour
+        
+        # Processing capacity
+        concurrent_processing = await db.scraping_queue.count_documents({"status": "processing"})
+        stats["concurrent_processing"] = concurrent_processing
+        stats["max_concurrent_processing"] = MAX_CONCURRENT_PROCESSING
+        stats["max_requests_per_hour_per_account"] = MAX_REQUESTS_PER_HOUR_PER_ACCOUNT
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting queue stats: {e}")
+        return {}
+
+async def cleanup_old_queue_requests():
+    """Clean up completed requests older than 7 days"""
+    try:
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
+        
+        result = await db.scraping_queue.delete_many({
+            "status": {"$in": ["completed", "failed"]},
+            "completed_at": {"$lt": cutoff_date}
+        })
+        
+        if result.deleted_count > 0:
+            logger.info(f"Cleaned up {result.deleted_count} old queue requests")
+            await send_discord_notification(f"🧹 **Queue Cleanup**\n🗑️ Removed {result.deleted_count} old requests")
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up old queue requests: {e}")
+
+async def process_queue_batch():
+    """Process multiple queue requests in batch (basic processor structure)"""
+    try:
+        logger.info("Starting batch queue processing...")
+        
+        # Get available accounts
+        available_accounts = []
+        accounts_cursor = db.youtube_accounts.find({"status": "active"})
+        async for account in accounts_cursor:
+            if not await is_account_rate_limited(account["id"]):
+                available_accounts.append(account["id"])
+        
+        if not available_accounts:
+            logger.info("No available accounts for queue processing")
+            return
+        
+        # Process requests up to concurrent limit
+        concurrent_processing = await db.scraping_queue.count_documents({"status": "processing"})
+        available_slots = MAX_CONCURRENT_PROCESSING - concurrent_processing
+        
+        if available_slots <= 0:
+            logger.info("Maximum concurrent processing limit reached")
+            return
+        
+        processed_count = 0
+        for account_id in available_accounts[:available_slots]:
+            request = await get_next_queue_request(account_id)
+            if request:
+                logger.info(f"Processing queue request {request.id} with account {account_id}")
+                # TODO: Implement actual processing logic here
+                # This is a placeholder for the actual scraping/extraction logic
+                processed_count += 1
+        
+        if processed_count > 0:
+            logger.info(f"Started processing {processed_count} queue requests")
+            await send_discord_notification(f"🔄 **Queue Processing Started**\n📊 Processing {processed_count} requests")
+        
+    except Exception as e:
+        logger.error(f"Error in batch queue processing: {e}")
+
 # API Routes
 @api_router.post("/lead-generation/start", response_model=ProcessingStatus)
 async def start_lead_generation(request: LeadGenerationRequest, background_tasks: BackgroundTasks):
