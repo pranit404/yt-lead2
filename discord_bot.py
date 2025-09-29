@@ -402,6 +402,55 @@ async def clear_database(ctx, collection_name: str = None):
     except asyncio.TimeoutError:
         await ctx.send("❌ Confirmation timeout. Operation cancelled.")
 
+@bot.command(name="email-toggle")
+async def email_toggle(ctx, action: str = None):
+    """
+    Toggle email sending globally or check current status
+    Usage: !email-toggle [on/off]
+    """
+    global SEND_EMAILS_ENABLED
+    
+    if action is None:
+        # Show current status
+        status = "✅ Enabled" if SEND_EMAILS_ENABLED else "❌ Disabled"
+        embed = discord.Embed(
+            title="✉️ Email Sending Status",
+            description=f"Current status: {status}",
+            color=0x2ecc71 if SEND_EMAILS_ENABLED else 0xe74c3c,
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(
+            name="📝 Note", 
+            value="Use `!email-toggle on` or `!email-toggle off` to change the setting", 
+            inline=False
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    if action.lower() in ['on', 'enable', 'true', '1']:
+        SEND_EMAILS_ENABLED = True
+        os.environ['SEND_EMAILS_ENABLED'] = 'true'
+        embed = discord.Embed(
+            title="✅ Email Sending Enabled",
+            description="Emails will be sent automatically when leads are processed",
+            color=0x2ecc71,
+            timestamp=datetime.now(timezone.utc)
+        )
+    elif action.lower() in ['off', 'disable', 'false', '0']:
+        SEND_EMAILS_ENABLED = False
+        os.environ['SEND_EMAILS_ENABLED'] = 'false'
+        embed = discord.Embed(
+            title="❌ Email Sending Disabled",
+            description="Emails will be extracted and stored but not sent",
+            color=0xe74c3c,
+            timestamp=datetime.now(timezone.utc)
+        )
+    else:
+        await ctx.send("❌ Invalid option. Use: `on`, `off`, `enable`, `disable`, `true`, or `false`")
+        return
+    
+    await ctx.send(embed=embed)
+
 @bot.command(name="guide")
 async def show_help(ctx):
     """Show help information"""
