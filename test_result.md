@@ -184,3 +184,5 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: "Successfully upgraded YouTube lead generation system with all requested features: centralized MongoDB database (2 collections), Discord bot with comprehensive commands and real-time notifications, client outreach emails instead of collaboration, enhanced frontend dashboard. System ready for configuration and testing."
+    -agent: "main"
+    -message: "CRITICAL BUG FIX: User reported ALL emails in YouTube about pages were being missed. Improved email extraction with: 1) Enhanced web scraping with better element targeting and 'Show more' button handling, 2) Improved email regex patterns with obfuscation handling, 3) Added debug endpoints for testing. Changes applied to scrape_channel_about_page() and extract_email_from_text() functions."
