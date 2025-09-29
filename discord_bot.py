@@ -504,7 +504,7 @@ async def show_help(ctx):
     
     embed.add_field(
         name="📋 Example Usage",
-        value="`!start 10000 1000000 500 2000 0.14 2.0 crypto trading bitcoin investment`",
+        value="`!start 10000 1000000 500 2000 0.14 2.0 false crypto trading bitcoin investment`\n`!start 10000 1000000 50 100 0.14 2.0 true test keyword` (test mode)",
         inline=False
     )
     
