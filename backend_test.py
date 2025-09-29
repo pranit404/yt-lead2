@@ -916,7 +916,7 @@ class YouTubeAccountManagementTester:
 
 def main():
     """Main test execution"""
-    tester = EmailExtractionTester()
+    tester = YouTubeAccountManagementTester()
     
     success = tester.run_all_tests()
     if success:
