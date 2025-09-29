@@ -1028,6 +1028,52 @@ async def add_email_to_channel(channel_id: str, email: str):
 async def root():
     return {"message": "YouTube Lead Generation Platform API"}
 
+@api_router.post("/debug/test-email-extraction")
+async def test_email_extraction(channel_id: str):
+    """Debug endpoint to test email extraction for a specific channel"""
+    try:
+        logger.info(f"Testing email extraction for channel: {channel_id}")
+        
+        # Test the scraping function
+        email, content = await scrape_channel_about_page(channel_id)
+        
+        return {
+            "channel_id": channel_id,
+            "email_found": email,
+            "content_preview": content[:500] if content else None,
+            "content_length": len(content) if content else 0,
+            "success": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing email extraction: {e}")
+        return {
+            "channel_id": channel_id,
+            "email_found": None,
+            "content_preview": None,
+            "content_length": 0,
+            "error": str(e),
+            "success": False
+        }
+
+@api_router.post("/debug/test-text-email-extraction") 
+async def test_text_email_extraction(text: str):
+    """Debug endpoint to test email extraction from raw text"""
+    try:
+        email = extract_email_from_text(text)
+        return {
+            "input_text": text,
+            "email_found": email,
+            "success": True
+        }
+    except Exception as e:
+        return {
+            "input_text": text,
+            "email_found": None,
+            "error": str(e),
+            "success": False
+        }
+
 # Include the router in the main app
 app.include_router(api_router)
 
