@@ -159,7 +159,7 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 1
     priority: "critical"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         -working: false
         -agent: "user"
@@ -167,6 +167,9 @@ backend:
         -working: false
         -agent: "main"
         -comment: "Fixed email extraction with improved web scraping (better element targeting, 'Show more' button handling, longer wait times) and enhanced email regex patterns (handles obfuscation, multiple patterns, better validation). Added debug endpoints for testing."
+        -working: false
+        -agent: "testing"
+        -comment: "CRITICAL ISSUES FOUND: 1) Obfuscated [at] [dot] pattern fails - spaces remain after replacement (business @ creator . com), 2) Underscore in domain names not supported in regex patterns [a-zA-Z0-9.-], 3) Web scraping completely broken - Playwright browser installation issues prevent any channel scraping. Text extraction API works for basic emails but fails on 2 critical patterns. Debug endpoints functional."
 
 frontend:
   - task: "Enhanced Frontend Dashboard"
