@@ -88,6 +88,16 @@ GEMINI_API_KEY = "AIzaSyDO7g9pBST5_856x6PkXilLVhMqYtCK2J0"
 # 2captcha Configuration  
 TWOCAPTCHA_API_KEY = "1f2a3d913a5e81af32e4014d5f9afbdb"
 
+# YouTube Login Configuration
+LOGIN_TIMEOUT = 30000  # 30 seconds
+SESSION_EXPIRY_HOURS = 24  # Sessions expire after 24 hours
+MAX_LOGIN_ATTEMPTS = 3
+STEALTH_USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+]
+
 # Account Rotation Settings
 MAX_ACCOUNTS_CONCURRENT = int(os.environ.get('MAX_ACCOUNTS_CONCURRENT', '3'))
 ACCOUNT_COOLDOWN_MINUTES = int(os.environ.get('ACCOUNT_COOLDOWN_MINUTES', '30'))
