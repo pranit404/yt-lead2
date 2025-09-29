@@ -329,7 +329,7 @@ async def export_leads(ctx, lead_type: str = "email", limit: int = 100):
         leads = await collection.find().limit(min(limit, 1000)).to_list(None)
         
         if not leads:
-            await ctx.send(f"No leads found to export.")
+            await ctx.send("No leads found to export.")
             return
         
         # Create export content
