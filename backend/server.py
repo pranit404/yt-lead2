@@ -246,6 +246,24 @@ async def send_discord_notification(message: str):
     except Exception as e:
         logger.error(f"Failed to send Discord notification: {e}")
 
+# Validation Functions
+def validate_ip_address(ip: str) -> bool:
+    """Validate if IP address is valid"""
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
+def validate_port(port: int) -> bool:
+    """Validate if port number is valid (1-65535)"""
+    return 1 <= port <= 65535
+
+def validate_protocol(protocol: str) -> bool:
+    """Validate if protocol is supported"""
+    valid_protocols = ["http", "https", "socks4", "socks5"]
+    return protocol.lower() in valid_protocols
+
 # Account Management Functions
 async def get_available_account() -> Optional[YouTubeAccount]:
     """Get an available YouTube account for scraping"""
