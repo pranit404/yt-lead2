@@ -157,6 +157,8 @@ async def start_lead_generation(ctx,
     embed.add_field(name="🎯 Max Channels", value=f"{max_channels:,}", inline=True)
     embed.add_field(name="📹 Max Videos/Keyword", value=f"{max_videos:,}", inline=True)
     embed.add_field(name="📅 Content Frequency", value=f"{min_frequency} - {max_frequency} videos/week", inline=False)
+    embed.add_field(name="🧪 Test Mode", value="✅ Enabled (Reduced limits)" if test_mode_bool else "❌ Disabled", inline=True)
+    embed.add_field(name="✉️ Email Sending", value="✅ Enabled" if SEND_EMAILS_ENABLED else "❌ Disabled (Extract only)", inline=True)
     
     await ctx.send(embed=embed)
     
