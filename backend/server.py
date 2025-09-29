@@ -83,6 +83,14 @@ DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1417915138400587909/B9_tEDQK
 # Gemini Configuration
 GEMINI_API_KEY = "AIzaSyDO7g9pBST5_856x6PkXilLVhMqYtCK2J0"
 
+# 2captcha Configuration  
+TWOCAPTCHA_API_KEY = "1f2a3d913a5e81af32e4014d5f9afbdb"
+
+# Account Rotation Settings
+MAX_ACCOUNTS_CONCURRENT = int(os.environ.get('MAX_ACCOUNTS_CONCURRENT', '3'))
+ACCOUNT_COOLDOWN_MINUTES = int(os.environ.get('ACCOUNT_COOLDOWN_MINUTES', '30'))
+MAX_DAILY_REQUESTS_PER_ACCOUNT = int(os.environ.get('MAX_DAILY_REQUESTS_PER_ACCOUNT', '100'))
+
 # Authentication Configuration
 SECRET_KEY = "your-secret-key-change-this-in-production"
 ALGORITHM = "HS256" 
