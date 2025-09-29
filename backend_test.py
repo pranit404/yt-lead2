@@ -512,42 +512,8 @@ class YouTubeAccountManagementTester:
                 self.log_test(f"Error Handling - {description}", False, f"Request error: {str(e)}")
             
             time.sleep(0.2)
-        """Test the debug text email extraction endpoint with various email formats"""
-        test_cases = [
-            {
-                "name": "Plain Email",
-                "text": "Contact me at john@example.com for business inquiries",
-                "expected_email": "john@example.com"
-            },
-            {
-                "name": "Obfuscated Email - [at] [dot]",
-                "text": "Reach out to business [at] creator [dot] com for collaborations",
-                "expected_email": "business@creator.com"
-            },
-            {
-                "name": "Obfuscated Email - (at) (dot)",
-                "text": "Email me at contact(at)youtuber(dot)net",
-                "expected_email": "contact@youtuber.net"
-            },
-            {
-                "name": "Obfuscated Email - spaces",
-                "text": "Send inquiries to hello at company dot org",
-                "expected_email": "hello@company.org"
-            },
-            {
-                "name": "Email with Context",
-                "text": "For business opportunities, contact: business@creator.com",
-                "expected_email": "business@creator.com"
-            },
-            {
-                "name": "Multiple Emails",
-                "text": "Contact support@company.com or sales@company.com for help",
-                "expected_email": "support@company.com"  # Should return first valid one
-            },
-            {
-                "name": "Email in Sentence",
-                "text": "My email address is creator123@gmail.com and I respond quickly",
-                "expected_email": "creator123@gmail.com"
+    
+    def run_all_tests(self):
             },
             {
                 "name": "Complex Email",
