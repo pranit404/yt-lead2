@@ -775,7 +775,10 @@ async def start_lead_generation(request: LeadGenerationRequest, background_tasks
     await db.processing_status.insert_one(status.dict())
     background_tasks.add_task(process_lead_generation, status.id, request)
     
-    await send_discord_notification(f"🚀 **Lead Generation Started!**\n📋 Keywords: {', '.join(request.keywords)}\n👥 Subscriber Range: {request.subscriber_min:,} - {request.subscriber_max:,}\n🎯 Max Channels: {request.max_channels}")
+    test_mode_str = " 🧪 (Test Mode)" if request.test_mode else ""
+    email_status_str = "✅ Enabled" if SEND_EMAILS_ENABLED else "❌ Disabled (Extract only)"
+    
+    await send_discord_notification(f"🚀 **Lead Generation Started!{test_mode_str}**\n📋 Keywords: {', '.join(request.keywords)}\n👥 Subscriber Range: {request.subscriber_min:,} - {request.subscriber_max:,}\n🎯 Max Channels: {request.max_channels}\n✉️ Email Sending: {email_status_str}")
     
     return status
 
