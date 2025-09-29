@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backend Testing Suite for YouTube Lead Generation Platform
-Focus: YouTube Account Management System Testing (2captcha Integration Phase 1 Step 1)
+Focus: Proxy Management System Testing (Phase 1 Step 2)
 """
 
 import requests
