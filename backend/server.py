@@ -1033,7 +1033,8 @@ async def add_email_to_channel(channel_id: str, email: str):
         channel = Channel(**channel_doc)
         await process_channel_with_email(channel)
         
-        if channel.email_subject and channel.email_body_preview:
+        # Check global email sending setting
+        if SEND_EMAILS_ENABLED and channel.email_subject and channel.email_body_preview:
             email_sent = await send_email(
                 email,
                 channel.email_subject,
@@ -1044,7 +1045,12 @@ async def add_email_to_channel(channel_id: str, email: str):
             if email_sent:
                 channel.email_sent_status = "sent"
                 await send_discord_notification(f"✉️ **Manual Email Sent!** Client outreach sent to **{channel.channel_title}** (manual email)")
-        
+            else:
+                channel.email_sent_status = "failed"
+        elif not SEND_EMAILS_ENABLED and channel.email_subject and channel.email_body_preview:
+            # Email sending disabled, but still store as prepared
+            channel.email_sent_status = "prepared_not_sent"
+            await send_discord_notification(f"📋 **Manual Email Prepared!** (Sending disabled) Client outreach prepared for **{channel.channel_title}**")
         await db.main_leads.insert_one(channel.dict())
         await db.no_email_leads.delete_one({"channel_id": channel_id})
         
