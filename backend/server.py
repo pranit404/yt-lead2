@@ -782,6 +782,12 @@ async def start_lead_generation(request: LeadGenerationRequest, background_tasks
 async def process_lead_generation(status_id: str, request: LeadGenerationRequest):
     """Background task to process lead generation"""
     try:
+        # Apply test mode limits if enabled
+        if request.test_mode:
+            request.max_videos_per_keyword = min(request.max_videos_per_keyword, 100)
+            request.max_channels = min(request.max_channels, 10)
+            await send_discord_notification(f"🧪 **Test Mode Enabled!** Limits reduced for faster testing")
+        
         await db.processing_status.update_one(
             {"id": status_id},
             {"$set": {"current_step": "discovering_videos", "updated_at": datetime.now(timezone.utc)}}
