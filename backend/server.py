@@ -1293,11 +1293,21 @@ async def scrape_channel_about_page(channel_id: str, use_authenticated_session: 
                     email = extract_email_from_text(combined_text)
                     
                     if email:
-                        logger.info(f"Found email: {email}")
+                        logger.info(f"Found email: {email} (Authenticated: {account is not None})")
+                        
+                        # Update account usage if authenticated
+                        if account:
+                            await update_account_usage(account.id, success=True)
+                        
                         await browser.close()
                         return email, combined_text[:1000]
                     elif "About" in content or combined_text.strip():
-                        logger.info("No email found but content retrieved")
+                        logger.info(f"No email found but content retrieved (Authenticated: {account is not None})")
+                        
+                        # Update account usage if authenticated
+                        if account:
+                            await update_account_usage(account.id, success=True)
+                        
                         await browser.close()
                         return None, combined_text[:1000]
                         
@@ -1305,10 +1315,19 @@ async def scrape_channel_about_page(channel_id: str, use_authenticated_session: 
                     logger.warning(f"Failed to scrape {about_url}: {url_error}")
                     continue
             
+            # Update account usage for failed scraping if authenticated
+            if account:
+                await update_account_usage(account.id, success=False, error_message="Failed to extract content from all URLs")
+            
             await browser.close()
             
     except Exception as e:
-        logger.error(f"Error scraping about page for channel {channel_id}: {e}")
+        error_msg = f"Error scraping about page for channel {channel_id}: {e}"
+        logger.error(error_msg)
+        
+        # Update account usage for critical errors if authenticated
+        if account:
+            await update_account_usage(account.id, success=False, error_message=error_msg)
     
     return None, None
 
