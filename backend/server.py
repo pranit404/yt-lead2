@@ -424,6 +424,428 @@ async def reset_daily_limits():
     except Exception as e:
         logger.error(f"Error resetting daily limits: {e}")
 
+# YouTube Login Automation Functions
+async def validate_session(account: YouTubeAccount) -> bool:
+    """Check if existing session is still valid"""
+    try:
+        if not account.session_data or not account.cookies:
+            return False
+            
+        # Check if session has expired
+        if account.last_used:
+            session_age = datetime.now(timezone.utc) - account.last_used
+            if session_age.total_seconds() > (SESSION_EXPIRY_HOURS * 3600):
+                logger.info(f"Session expired for account {account.email}")
+                return False
+        
+        # Test session validity with a simple YouTube request
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent=account.user_agent or STEALTH_USER_AGENTS[0]
+            )
+            
+            # Load cookies into context
+            if account.cookies:
+                try:
+                    cookies_list = []
+                    for cookie_data in account.cookies.values():
+                        if isinstance(cookie_data, dict):
+                            cookies_list.append(cookie_data)
+                    
+                    if cookies_list:
+                        await context.add_cookies(cookies_list)
+                except Exception as cookie_error:
+                    logger.warning(f"Failed to load cookies for {account.email}: {cookie_error}")
+                    await browser.close()
+                    return False
+            
+            page = await context.new_page()
+            
+            try:
+                # Try to access YouTube and check if we're logged in
+                await page.goto("https://www.youtube.com", timeout=15000)
+                await page.wait_for_timeout(3000)
+                
+                # Check for login indicators
+                profile_button = await page.query_selector("button[aria-label*='Google Account']")
+                avatar_button = await page.query_selector("img#avatar")
+                
+                await browser.close()
+                
+                if profile_button or avatar_button:
+                    logger.info(f"Session valid for account {account.email}")
+                    return True
+                else:
+                    logger.info(f"Session invalid for account {account.email} - not logged in")
+                    return False
+                    
+            except Exception as e:
+                logger.warning(f"Session validation failed for {account.email}: {e}")
+                await browser.close()
+                return False
+                
+    except Exception as e:
+        logger.error(f"Error validating session for {account.email}: {e}")
+        return False
+
+async def save_session_data(account_id: str, cookies: list, session_data: dict, user_agent: str):
+    """Save session data and cookies to MongoDB"""
+    try:
+        # Convert cookies list to dictionary for storage
+        cookies_dict = {}
+        for i, cookie in enumerate(cookies):
+            cookies_dict[f"cookie_{i}"] = cookie
+        
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "cookies": cookies_dict,
+                    "session_data": session_data,
+                    "user_agent": user_agent,
+                    "last_used": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        logger.info(f"Session data saved for account {account_id}")
+        
+    except Exception as e:
+        logger.error(f"Error saving session data for {account_id}: {e}")
+
+async def handle_captcha_with_2captcha(page, solver: TwoCaptcha) -> bool:
+    """Handle CAPTCHA using 2captcha service"""
+    try:
+        logger.info("CAPTCHA detected, attempting to solve with 2captcha...")
+        
+        # Look for different CAPTCHA types
+        captcha_selectors = [
+            "iframe[src*='recaptcha']",
+            "[data-sitekey]",
+            "#captcha",
+            ".captcha",
+            "[aria-label*='captcha']"
+        ]
+        
+        captcha_element = None
+        for selector in captcha_selectors:
+            captcha_element = await page.query_selector(selector)
+            if captcha_element:
+                break
+        
+        if not captcha_element:
+            logger.warning("CAPTCHA detected but element not found")
+            return False
+        
+        # Handle reCAPTCHA
+        if "recaptcha" in (await captcha_element.get_attribute("src") or ""):
+            try:
+                # Get the site key
+                site_key_element = await page.query_selector("[data-sitekey]")
+                if not site_key_element:
+                    logger.error("reCAPTCHA site key not found")
+                    return False
+                
+                site_key = await site_key_element.get_attribute("data-sitekey")
+                page_url = page.url
+                
+                logger.info(f"Solving reCAPTCHA with site key: {site_key}")
+                
+                # Solve CAPTCHA with 2captcha
+                result = solver.recaptcha(sitekey=site_key, url=page_url)
+                
+                if result and result.get('code'):
+                    # Inject the solution
+                    await page.evaluate(f'''
+                        document.getElementById('g-recaptcha-response').innerHTML = '{result["code"]}';
+                        if (typeof ___grecaptcha_cfg !== 'undefined') {{
+                            Object.entries(___grecaptcha_cfg.clients).forEach(([cid, client]) => {{
+                                if (client && client.callback) {{
+                                    client.callback('{result["code"]}');
+                                }}
+                            }});
+                        }}
+                    ''')
+                    
+                    # Submit the form or continue
+                    submit_button = await page.query_selector("input[type='submit'], button[type='submit'], #submit")
+                    if submit_button:
+                        await submit_button.click()
+                        await page.wait_for_timeout(3000)
+                    
+                    logger.info("reCAPTCHA solved successfully")
+                    return True
+                    
+            except Exception as captcha_error:
+                logger.error(f"Error solving reCAPTCHA: {captcha_error}")
+                return False
+        
+        # Handle other CAPTCHA types
+        logger.warning("Unsupported CAPTCHA type detected")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error handling CAPTCHA: {e}")
+        return False
+
+async def login_to_youtube(account: YouTubeAccount, use_proxy: bool = True) -> tuple[bool, str]:
+    """
+    Attempt to login to YouTube with given account
+    Returns (success: bool, message: str)
+    """
+    try:
+        logger.info(f"Attempting YouTube login for account: {account.email}")
+        
+        # Initialize 2captcha solver
+        solver = TwoCaptcha(TWOCAPTCHA_API_KEY)
+        
+        # Get proxy if needed
+        proxy = None
+        if use_proxy:
+            proxy = await get_available_proxy()
+        
+        # Select random user agent
+        import random
+        user_agent = random.choice(STEALTH_USER_AGENTS)
+        
+        async with async_playwright() as p:
+            # Launch browser with stealth settings
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-first-run',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-extensions',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox'
+                ]
+            )
+            
+            # Create context with stealth settings
+            context_options = {
+                'user_agent': user_agent,
+                'viewport': {'width': 1366, 'height': 768},
+                'java_script_enabled': True,
+                'accept_downloads': False,
+            }
+            
+            # Add proxy if available
+            if proxy and proxy.status == "active":
+                proxy_url = f"{proxy.protocol}://"
+                if proxy.username and proxy.password:
+                    proxy_url += f"{proxy.username}:{proxy.password}@"
+                proxy_url += f"{proxy.ip}:{proxy.port}"
+                context_options['proxy'] = {'server': proxy_url}
+                logger.info(f"Using proxy: {proxy.ip}:{proxy.port}")
+            
+            context = await browser.new_context(**context_options)
+            
+            # Add stealth script to avoid detection
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+            """)
+            
+            page = await context.new_page()
+            
+            try:
+                # Navigate to Google sign-in
+                await page.goto("https://accounts.google.com/signin", timeout=LOGIN_TIMEOUT)
+                await page.wait_for_timeout(3000)
+                
+                # Enter email
+                email_input = await page.wait_for_selector("input[type='email']", timeout=10000)
+                await email_input.fill(account.email)
+                await page.wait_for_timeout(1000)
+                
+                # Click next
+                next_button = await page.wait_for_selector("#identifierNext", timeout=5000)
+                await next_button.click()
+                await page.wait_for_timeout(3000)
+                
+                # Check for CAPTCHA after email
+                captcha_detected = await page.query_selector("iframe[src*='recaptcha']")
+                if captcha_detected:
+                    captcha_solved = await handle_captcha_with_2captcha(page, solver)
+                    if not captcha_solved:
+                        await browser.close()
+                        return False, "CAPTCHA solving failed after email entry"
+                
+                # Enter password
+                password_input = await page.wait_for_selector("input[type='password']", timeout=10000)
+                await password_input.fill(account.password)
+                await page.wait_for_timeout(1000)
+                
+                # Click sign in
+                signin_button = await page.wait_for_selector("#passwordNext", timeout=5000)
+                await signin_button.click()
+                await page.wait_for_timeout(5000)
+                
+                # Check for CAPTCHA after password
+                captcha_detected = await page.query_selector("iframe[src*='recaptcha']")
+                if captcha_detected:
+                    captcha_solved = await handle_captcha_with_2captcha(page, solver)
+                    if not captcha_solved:
+                        await browser.close()
+                        return False, "CAPTCHA solving failed after password entry"
+                
+                # Check for additional verification steps
+                await page.wait_for_timeout(5000)
+                
+                # Handle 2FA or phone verification if present
+                verification_selectors = [
+                    "input[type='tel']",  # Phone verification
+                    "input[aria-label*='code']",  # 2FA code
+                    "[data-error-msg*='verify']"  # Generic verification
+                ]
+                
+                verification_found = False
+                for selector in verification_selectors:
+                    element = await page.query_selector(selector)
+                    if element:
+                        verification_found = True
+                        break
+                
+                if verification_found:
+                    await browser.close()
+                    return False, "Account requires additional verification (2FA/Phone)"
+                
+                # Navigate to YouTube to verify login
+                await page.goto("https://www.youtube.com", timeout=LOGIN_TIMEOUT)
+                await page.wait_for_timeout(5000)
+                
+                # Check if successfully logged in
+                profile_indicators = [
+                    "button[aria-label*='Google Account']",
+                    "img#avatar",
+                    "yt-img-shadow#avatar",
+                    "[aria-label*='Account menu']"
+                ]
+                
+                logged_in = False
+                for selector in profile_indicators:
+                    element = await page.query_selector(selector)
+                    if element:
+                        logged_in = True
+                        break
+                
+                if logged_in:
+                    # Save session data
+                    cookies = await context.cookies()
+                    session_data = {
+                        'login_time': datetime.now(timezone.utc).isoformat(),
+                        'proxy_used': f"{proxy.ip}:{proxy.port}" if proxy else None,
+                        'user_agent': user_agent
+                    }
+                    
+                    await save_session_data(account.id, cookies, session_data, user_agent)
+                    
+                    # Update account status
+                    await update_account_usage(account.id, success=True)
+                    
+                    await browser.close()
+                    
+                    logger.info(f"Successfully logged in to YouTube: {account.email}")
+                    await send_discord_notification(f"✅ **YouTube Login Success** \n📧 Account: {account.email}\n🌐 Proxy: {proxy.ip if proxy else 'None'}")
+                    
+                    return True, "Login successful"
+                else:
+                    await browser.close()
+                    return False, "Login failed - account indicators not found"
+                    
+            except Exception as login_error:
+                await browser.close()
+                error_msg = f"Login process error: {login_error}"
+                logger.error(f"Login failed for {account.email}: {error_msg}")
+                
+                # Update account with error
+                await update_account_usage(account.id, success=False, error_message=error_msg)
+                
+                return False, error_msg
+                
+    except Exception as e:
+        error_msg = f"Critical login error: {e}"
+        logger.error(f"Critical error during login for {account.email}: {error_msg}")
+        return False, error_msg
+
+async def get_authenticated_session(account_id: Optional[str] = None) -> tuple[Optional[YouTubeAccount], Optional[dict]]:
+    """
+    Get an authenticated session for YouTube scraping
+    Returns (account, session_context) where session_context contains browser setup info
+    """
+    try:
+        # Get available account
+        if account_id:
+            account_doc = await db.youtube_accounts.find_one({"id": account_id, "status": "active"})
+            if not account_doc:
+                return None, None
+            account = YouTubeAccount(**account_doc)
+        else:
+            account = await get_available_account()
+            
+        if not account:
+            logger.warning("No available accounts for authentication")
+            return None, None
+        
+        # Check if existing session is valid
+        session_valid = await validate_session(account)
+        
+        if not session_valid:
+            logger.info(f"Session invalid for {account.email}, attempting fresh login...")
+            
+            # Attempt login with retry logic
+            login_attempts = 0
+            login_success = False
+            
+            while login_attempts < MAX_LOGIN_ATTEMPTS and not login_success:
+                login_attempts += 1
+                success, message = await login_to_youtube(account)
+                
+                if success:
+                    login_success = True
+                    break
+                else:
+                    logger.warning(f"Login attempt {login_attempts} failed for {account.email}: {message}")
+                    if "CAPTCHA" in message or "verification" in message:
+                        # Don't retry for CAPTCHA or verification issues
+                        break
+                    
+                    if login_attempts < MAX_LOGIN_ATTEMPTS:
+                        await asyncio.sleep(5)  # Wait before retry
+            
+            if not login_success:
+                # Mark account as having issues
+                await update_account_usage(account.id, success=False, error_message="Failed to establish session")
+                return None, None
+        
+        # Prepare session context for use
+        session_context = {
+            'user_agent': account.user_agent or STEALTH_USER_AGENTS[0],
+            'cookies': account.cookies,
+            'session_data': account.session_data,
+            'account_id': account.id
+        }
+        
+        logger.info(f"Authenticated session ready for account: {account.email}")
+        return account, session_context
+        
+    except Exception as e:
+        logger.error(f"Error getting authenticated session: {e}")
+        return None, None
+
 # Proxy Management Functions
 async def get_available_proxy() -> Optional[ProxyConfig]:
     """Get an available proxy for scraping"""
