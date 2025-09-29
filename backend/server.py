@@ -1146,8 +1146,8 @@ def extract_email_from_text(text: str) -> Optional[str]:
     
     return None
 
-async def scrape_channel_about_page(channel_id: str) -> tuple[Optional[str], Optional[str]]:
-    """Scrape channel about page for email and content using Playwright with improved targeting"""
+async def scrape_channel_about_page(channel_id: str, use_authenticated_session: bool = True) -> tuple[Optional[str], Optional[str]]:
+    """Scrape channel about page for email and content using Playwright with authentication support"""
     try:
         # Handle different channel ID formats
         if channel_id.startswith('@'):
@@ -1164,11 +1164,55 @@ async def scrape_channel_about_page(channel_id: str) -> tuple[Optional[str], Opt
                 f"https://www.youtube.com/channel/{channel_id}/about"  # fallback
             ]
         
+        # Try to get authenticated session first
+        account = None
+        session_context = None
+        
+        if use_authenticated_session:
+            account, session_context = await get_authenticated_session()
+            if not account:
+                logger.warning("No authenticated session available, falling back to non-authenticated scraping")
+        
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-first-run',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor'
+                ]
             )
+            
+            # Use session context if available
+            context_options = {
+                'user_agent': session_context['user_agent'] if session_context else STEALTH_USER_AGENTS[0],
+                'viewport': {'width': 1366, 'height': 768}
+            }
+            
+            context = await browser.new_context(**context_options)
+            
+            # Load cookies if we have an authenticated session
+            if session_context and session_context.get('cookies'):
+                try:
+                    cookies_list = []
+                    for cookie_data in session_context['cookies'].values():
+                        if isinstance(cookie_data, dict):
+                            cookies_list.append(cookie_data)
+                    
+                    if cookies_list:
+                        await context.add_cookies(cookies_list)
+                        logger.info(f"Loaded {len(cookies_list)} cookies for authenticated scraping")
+                except Exception as cookie_error:
+                    logger.warning(f"Failed to load cookies: {cookie_error}")
+            
+            # Add stealth script
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+            """)
+            
             page = await context.new_page()
             
             for about_url in urls_to_try:
