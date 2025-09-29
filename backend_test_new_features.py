@@ -386,9 +386,8 @@ class NewFeaturesTester:
                 
                 # Toggle the setting
                 new_status = not initial_status
-                payload = {"enabled": new_status}
-                toggle_response = requests.post(f"{self.backend_url}/settings/email-sending", 
-                                              json=payload, timeout=10)
+                toggle_response = requests.post(f"{self.backend_url}/settings/email-sending?enabled={str(new_status).lower()}", 
+                                              timeout=10)
                 
                 if toggle_response.status_code == 200:
                     time.sleep(1)
