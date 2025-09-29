@@ -198,6 +198,43 @@ class AccountAddRequest(BaseModel):
 class AccountStatusUpdate(BaseModel):
     status: str
 
+# Proxy Management Models
+class ProxyConfig(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ip: str
+    port: int
+    username: Optional[str] = None
+    password: Optional[str] = None
+    protocol: str = "http"  # http, https, socks4, socks5
+    status: str = "active"  # active, disabled, banned, maintenance
+    last_used: Optional[datetime] = None
+    daily_requests_count: int = 0
+    total_requests_count: int = 0
+    success_rate: float = 100.0
+    response_time_avg: float = 0.0  # Average response time in seconds
+    last_health_check: Optional[datetime] = None
+    health_status: str = "unknown"  # healthy, unhealthy, unknown
+    last_error: Optional[str] = None
+    location: Optional[str] = None  # Geographic location
+    provider: Optional[str] = None  # Proxy provider name
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ProxyAddRequest(BaseModel):
+    ip: str
+    port: int
+    username: Optional[str] = None
+    password: Optional[str] = None
+    protocol: str = "http"
+    location: Optional[str] = None
+    provider: Optional[str] = None
+
+class ProxyStatusUpdate(BaseModel):
+    status: str
+
+class ProxyHealthCheckRequest(BaseModel):
+    proxy_id: Optional[str] = None  # If None, check all proxies
+
 # Utility Functions
 async def send_discord_notification(message: str):
     """Send notification to Discord webhook"""
