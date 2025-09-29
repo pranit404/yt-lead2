@@ -1352,14 +1352,14 @@ async def update_account_status(account_id: str, request: AccountStatusUpdate):
     """Update account status (active, banned, rate_limited, maintenance)"""
     try:
         valid_statuses = ["active", "banned", "rate_limited", "maintenance"]
-        if status not in valid_statuses:
+        if request.status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
         
         result = await db.youtube_accounts.update_one(
             {"id": account_id},
             {
                 "$set": {
-                    "status": status,
+                    "status": request.status,
                     "updated_at": datetime.now(timezone.utc)
                 }
             }
@@ -1368,9 +1368,9 @@ async def update_account_status(account_id: str, request: AccountStatusUpdate):
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Account not found")
         
-        await send_discord_notification(f"🔄 **Account Status Updated** \n🆔 ID: {account_id}\n📊 Status: {status}")
+        await send_discord_notification(f"🔄 **Account Status Updated** \n🆔 ID: {account_id}\n📊 Status: {request.status}")
         
-        return {"message": f"Account status updated to {status}", "account_id": account_id}
+        return {"message": f"Account status updated to {request.status}", "account_id": account_id}
         
     except HTTPException:
         raise
