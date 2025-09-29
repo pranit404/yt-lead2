@@ -1745,7 +1745,9 @@ async def get_proxies_overview():
     try:
         total = await db.proxy_pool.count_documents({})
         active = await db.proxy_pool.count_documents({"status": "active"})
+        disabled = await db.proxy_pool.count_documents({"status": "disabled"})
         healthy = await db.proxy_pool.count_documents({"health_status": "healthy"})
+        unhealthy = await db.proxy_pool.count_documents({"health_status": "unhealthy"})
         banned = await db.proxy_pool.count_documents({"status": "banned"})
         
         # Get average success rate
@@ -1764,10 +1766,14 @@ async def get_proxies_overview():
         return {
             "total_proxies": total,
             "active_proxies": active,
+            "disabled_proxies": disabled,
             "healthy_proxies": healthy,
+            "unhealthy_proxies": unhealthy,
             "banned_proxies": banned,
             "average_success_rate": round(avg_success, 2),
             "average_response_time": round(avg_response, 3),
+            "max_daily_requests_per_proxy": MAX_DAILY_REQUESTS_PER_PROXY,
+            "max_concurrent_proxies": MAX_PROXIES_CONCURRENT,
             "pool_health": "good" if (healthy / max(active, 1)) > 0.7 else "needs_attention"
         }
         
