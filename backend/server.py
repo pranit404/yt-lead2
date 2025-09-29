@@ -99,6 +99,12 @@ PROXY_COOLDOWN_MINUTES = int(os.environ.get('PROXY_COOLDOWN_MINUTES', '15'))
 MAX_DAILY_REQUESTS_PER_PROXY = int(os.environ.get('MAX_DAILY_REQUESTS_PER_PROXY', '200'))
 PROXY_HEALTH_CHECK_TIMEOUT = int(os.environ.get('PROXY_HEALTH_CHECK_TIMEOUT', '10'))
 
+# Queue & Rate Limiting Settings
+MAX_REQUESTS_PER_HOUR_PER_ACCOUNT = int(os.environ.get('MAX_REQUESTS_PER_HOUR_PER_ACCOUNT', '15'))
+MAX_CONCURRENT_PROCESSING = int(os.environ.get('MAX_CONCURRENT_PROCESSING', '5'))
+QUEUE_RETRY_ATTEMPTS = int(os.environ.get('QUEUE_RETRY_ATTEMPTS', '3'))
+QUEUE_RETRY_DELAY_MINUTES = int(os.environ.get('QUEUE_RETRY_DELAY_MINUTES', '10'))
+
 # Authentication Configuration
 SECRET_KEY = "your-secret-key-change-this-in-production"
 ALGORITHM = "HS256" 
