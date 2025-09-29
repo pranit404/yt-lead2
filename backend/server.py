@@ -1448,67 +1448,6 @@ async def delete_youtube_account(account_id: str):
         logger.error(f"Error deleting account {account_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/accounts/stats/overview")
-async def get_accounts_overview():
-    """Get overview statistics of all accounts"""
-    try:
-        total_accounts = await db.youtube_accounts.count_documents({})
-        active_accounts = await db.youtube_accounts.count_documents({"status": "active"})
-        banned_accounts = await db.youtube_accounts.count_documents({"status": "banned"})
-        rate_limited = await db.youtube_accounts.count_documents({"status": "rate_limited"})
-        
-        # Get accounts with high usage today
-        today = datetime.now(timezone.utc).date()
-        high_usage = await db.youtube_accounts.count_documents({
-            "daily_requests_count": {"$gte": MAX_DAILY_REQUESTS_PER_ACCOUNT * 0.8}
-        })
-        
-        return {
-            "total_accounts": total_accounts,
-            "active_accounts": active_accounts,
-            "banned_accounts": banned_accounts,
-            "rate_limited_accounts": rate_limited,
-            "high_usage_accounts": high_usage,
-            "max_daily_requests_per_account": MAX_DAILY_REQUESTS_PER_ACCOUNT,
-            "max_concurrent_accounts": MAX_ACCOUNTS_CONCURRENT
-        }
-    except Exception as e:
-        logger.error(f"Error getting accounts overview: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/accounts/reset-daily-limits")
-async def reset_accounts_daily_limits():
-    """Manually reset daily request limits for all accounts"""
-    try:
-        await reset_daily_limits()
-        return {"message": "Daily limits reset for all accounts"}
-    except Exception as e:
-        logger.error(f"Error resetting daily limits: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/accounts/available")
-async def get_next_available_account():
-    """Get the next available account for testing"""
-    try:
-        account = await get_available_account()
-        if account:
-            return {
-                "account_found": True,
-                "account_id": account.id,
-                "account_email": account.email,
-                "status": account.status,
-                "daily_requests": account.daily_requests_count,
-                "success_rate": account.success_rate
-            }
-        else:
-            return {
-                "account_found": False,
-                "message": "No available accounts found"
-            }
-    except Exception as e:
-        logger.error(f"Error getting available account: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 # Include the router in the main app
 app.include_router(api_router)
 
