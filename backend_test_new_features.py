@@ -82,9 +82,8 @@ class NewFeaturesTester:
     def test_email_settings_post_disable(self):
         """Test POST /api/settings/email-sending with enabled: false"""
         try:
-            payload = {"enabled": False}
-            response = requests.post(f"{self.backend_url}/settings/email-sending", 
-                                   json=payload, timeout=10)
+            response = requests.post(f"{self.backend_url}/settings/email-sending?enabled=false", 
+                                   timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
