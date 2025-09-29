@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 
 # Backend URL Configuration
-BACKEND_URL = "http://localhost:8001/api"
+BACKEND_URL = "https://demobackend.emergentagent.com/api"
 
 class ProxyManagementTester:
     def __init__(self):
