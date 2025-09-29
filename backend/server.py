@@ -245,7 +245,7 @@ def extract_email_from_text(text: str) -> Optional[str]:
     return None
 
 async def scrape_channel_about_page(channel_id: str) -> tuple[Optional[str], Optional[str]]:
-    """Scrape channel about page for email and content using Playwright"""
+    """Scrape channel about page for email and content using Playwright with improved targeting"""
     try:
         urls_to_try = [
             f"https://www.youtube.com/channel/{channel_id}/about",
@@ -264,17 +264,86 @@ async def scrape_channel_about_page(channel_id: str) -> tuple[Optional[str], Opt
                     logger.info(f"Trying to scrape: {about_url}")
                     
                     await page.goto(about_url, wait_until="networkidle", timeout=30000)
+                    await page.wait_for_timeout(5000)  # Increased wait time
+                    
+                    # Try to expand "Show more" buttons to reveal full content
+                    try:
+                        # Look for various "show more" button selectors
+                        show_more_selectors = [
+                            "button[aria-label*='more']",
+                            "button[aria-label*='Show more']",
+                            "button[aria-label*='Show less']",
+                            "tp-yt-paper-button#expand",
+                            "yt-button-shape[aria-label*='more']",
+                            "#expand-button",
+                            "[aria-label*='more']"
+                        ]
+                        
+                        for selector in show_more_selectors:
+                            try:
+                                show_more_button = await page.wait_for_selector(selector, timeout=2000)
+                                if show_more_button:
+                                    await show_more_button.click()
+                                    await page.wait_for_timeout(2000)
+                                    logger.info(f"Successfully clicked show more button with selector: {selector}")
+                                    break
+                            except:
+                                continue
+                                
+                    except Exception as expand_error:
+                        logger.debug(f"Could not expand content: {expand_error}")
+                    
+                    # Wait a bit more after potential expansion
                     await page.wait_for_timeout(3000)
                     
+                    # Get page content
                     content = await page.content()
                     soup = BeautifulSoup(content, 'html.parser')
-                    text_content = soup.get_text()
                     
-                    email = extract_email_from_text(text_content)
+                    # Target specific YouTube about page elements
+                    about_text_elements = []
                     
-                    if email or "About" in content:
+                    # Try to find description/about content in specific containers
+                    description_selectors = [
+                        "yt-formatted-string#description-text",
+                        "#description-text",
+                        "[id*='description']",
+                        "[class*='description']",
+                        "yt-formatted-string.ytd-channel-about-metadata-renderer",
+                        ".ytd-channel-about-metadata-renderer",
+                        "#about-description",
+                        "yt-formatted-string.content"
+                    ]
+                    
+                    for selector in description_selectors:
+                        elements = soup.select(selector)
+                        for element in elements:
+                            text = element.get_text().strip()
+                            if text and len(text) > 10:  # Only meaningful text
+                                about_text_elements.append(text)
+                    
+                    # Combine all found text
+                    combined_text = "\n".join(about_text_elements)
+                    
+                    # Fallback to general text extraction if specific selectors didn't work
+                    if not combined_text.strip():
+                        logger.info("Fallback to general text extraction")
+                        combined_text = soup.get_text()
+                    
+                    logger.info(f"Extracted text length: {len(combined_text)}")
+                    logger.debug(f"First 500 chars: {combined_text[:500]}")
+                    
+                    # Extract email from the text
+                    email = extract_email_from_text(combined_text)
+                    
+                    if email:
+                        logger.info(f"Found email: {email}")
                         await browser.close()
-                        return email, text_content[:1000]
+                        return email, combined_text[:1000]
+                    elif "About" in content or combined_text.strip():
+                        logger.info("No email found but content retrieved")
+                        await browser.close()
+                        return None, combined_text[:1000]
                         
                 except Exception as url_error:
                     logger.warning(f"Failed to scrape {about_url}: {url_error}")
