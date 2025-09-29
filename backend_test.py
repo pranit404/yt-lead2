@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backend Testing Suite for YouTube Lead Generation Platform
-Focus: Proxy Management System Testing (Phase 1 Step 2)
+Focus: Request Queue & Rate Limiting Foundation Testing (Phase 1 Step 3)
 """
 
 import requests
@@ -10,6 +10,7 @@ import sys
 import time
 import uuid
 from typing import Dict, List, Optional
+from datetime import datetime, timedelta
 
 # Backend URL Configuration
 BACKEND_URL = "http://localhost:8001/api"
