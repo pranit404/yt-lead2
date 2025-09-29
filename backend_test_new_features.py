@@ -424,17 +424,15 @@ class NewFeaturesTester:
         """Test API endpoints with invalid inputs"""
         invalid_tests = [
             {
-                "name": "Email Settings - Invalid JSON",
-                "endpoint": "/settings/email-sending",
+                "name": "Email Settings - Invalid enabled value",
+                "endpoint": "/settings/email-sending?enabled=invalid",
                 "method": "POST",
-                "payload": {"invalid": "data"},
                 "should_fail": True
             },
             {
                 "name": "Email Settings - Missing enabled field",
                 "endpoint": "/settings/email-sending", 
                 "method": "POST",
-                "payload": {},
                 "should_fail": True
             },
             {
