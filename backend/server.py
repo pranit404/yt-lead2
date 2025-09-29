@@ -104,6 +104,7 @@ class LeadGenerationRequest(BaseModel):
     subscriber_max: int = 1000000
     content_frequency_min: float = 0.14
     content_frequency_max: Optional[float] = 2.0
+    test_mode: bool = False  # Reduces limits for faster testing
 
 class Channel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
