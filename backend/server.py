@@ -1435,7 +1435,7 @@ async def reset_accounts_daily_limits():
         logger.error(f"Error resetting daily limits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/accounts/get-available")
+@api_router.get("/accounts/available")
 async def get_next_available_account():
     """Get the next available account for testing"""
     try:
