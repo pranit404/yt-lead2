@@ -337,9 +337,8 @@ class NewFeaturesTester:
             },
             {
                 "method": "POST", 
-                "endpoint": "/settings/email-sending",
-                "name": "Email Settings POST",
-                "payload": {"enabled": True}
+                "endpoint": "/settings/email-sending?enabled=true",
+                "name": "Email Settings POST"
             },
             {
                 "method": "POST",
