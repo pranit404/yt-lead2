@@ -161,8 +161,7 @@ class NewFeaturesTester:
                 data = response.json()
                 if data["email_sending_enabled"] == False:
                     # Now set to enabled
-                    payload = {"enabled": True}
-                    requests.post(f"{self.backend_url}/settings/email-sending", json=payload, timeout=10)
+                    requests.post(f"{self.backend_url}/settings/email-sending?enabled=true", timeout=10)
                     
                     time.sleep(1)
                     
