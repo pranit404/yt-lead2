@@ -2486,6 +2486,112 @@ async def delete_youtube_account(account_id: str):
         logger.error(f"Error deleting account {account_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/accounts/initialize-real-accounts")
+async def initialize_real_accounts():
+    """Initialize the database with real YouTube accounts for login automation"""
+    try:
+        real_accounts = [
+            {
+                "email": "ksmedia.project2@gmail.com",
+                "password": "1CRrevenue"
+            },
+            {
+                "email": "ksmedia.project3@gmail.com",
+                "password": "1CRrevenue"
+            },
+            {
+                "email": "ksmedia.project4@gmail.com",
+                "password": "1CRrevenue"
+            }
+        ]
+        
+        # Clear existing accounts (if any)
+        await db.youtube_accounts.delete_many({})
+        
+        added_accounts = []
+        
+        for account_data in real_accounts:
+            account = YouTubeAccount(
+                email=account_data["email"],
+                password=account_data["password"],
+                status="active"
+            )
+            
+            await db.youtube_accounts.insert_one(account.dict())
+            added_accounts.append(account.email)
+            
+            logger.info(f"Added real YouTube account: {account.email}")
+        
+        await send_discord_notification(f"🎯 **Real YouTube Accounts Initialized** \n📧 Accounts: {', '.join(added_accounts)}\n🔐 Status: Ready for login automation")
+        
+        return {
+            "message": "Real YouTube accounts initialized successfully",
+            "accounts_added": added_accounts,
+            "total_accounts": len(added_accounts)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error initializing real accounts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/accounts/{account_id}/login")
+async def test_account_login(account_id: str):
+    """Test login for a specific YouTube account"""
+    try:
+        # Get account from database
+        account_doc = await db.youtube_accounts.find_one({"id": account_id})
+        if not account_doc:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        account = YouTubeAccount(**account_doc)
+        
+        # Attempt login
+        success, message = await login_to_youtube(account)
+        
+        return {
+            "account_id": account_id,
+            "email": account.email,
+            "login_success": success,
+            "message": message,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing account login {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts/{account_id}/session/validate")
+async def validate_account_session(account_id: str):
+    """Validate existing session for a YouTube account"""
+    try:
+        # Get account from database
+        account_doc = await db.youtube_accounts.find_one({"id": account_id})
+        if not account_doc:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        account = YouTubeAccount(**account_doc)
+        
+        # Validate session
+        is_valid = await validate_session(account)
+        
+        return {
+            "account_id": account_id,
+            "email": account.email,
+            "session_valid": is_valid,
+            "last_used": account.last_used.isoformat() if account.last_used else None,
+            "has_cookies": bool(account.cookies),
+            "has_session_data": bool(account.session_data),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error validating account session {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Proxy Management API Routes
 @api_router.post("/proxies/add", response_model=ProxyConfig)
 async def add_proxy(request: ProxyAddRequest):
