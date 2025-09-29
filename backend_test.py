@@ -514,90 +514,121 @@ class YouTubeAccountManagementTester:
             time.sleep(0.2)
     
     def run_all_tests(self):
-            },
-            {
-                "name": "Complex Email",
-                "text": "Business inquiries: first.last+business@sub.domain.co.uk",
-                "expected_email": "first.last+business@sub.domain.co.uk"
-            },
-            {
-                "name": "No Email",
-                "text": "This text has no email addresses in it at all",
-                "expected_email": None
-            },
-            {
-                "name": "Invalid Email Format",
-                "text": "Contact me at notanemail@invalid or fake@email",
-                "expected_email": None
-            }
-        ]
+        """Run all YouTube Account Management System tests"""
+        print("🚀 Starting YouTube Account Management System Testing")
+        print("🎯 2captcha Integration Phase 1 Step 1")
+        print("=" * 70)
         
-        endpoint = f"{self.backend_url}/debug/test-text-email-extraction"
+        # Test 1: Basic connectivity
+        if not self.test_backend_connectivity():
+            print("❌ Backend not accessible. Stopping tests.")
+            return False
         
-        for test_case in test_cases:
-            try:
-                response = requests.post(endpoint, params={"text": test_case["text"]}, timeout=10)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    found_email = data.get("email_found")
-                    
-                    if test_case["expected_email"] is None:
-                        # Expecting no email
-                        if found_email is None:
-                            self.log_test(f"Text Email Extraction - {test_case['name']}", True, 
-                                        "Correctly found no email", data)
-                        else:
-                            self.log_test(f"Text Email Extraction - {test_case['name']}", False, 
-                                        f"Expected no email but found: {found_email}", data)
-                    else:
-                        # Expecting an email
-                        if found_email == test_case["expected_email"]:
-                            self.log_test(f"Text Email Extraction - {test_case['name']}", True, 
-                                        f"Correctly extracted: {found_email}", data)
-                        else:
-                            self.log_test(f"Text Email Extraction - {test_case['name']}", False, 
-                                        f"Expected: {test_case['expected_email']}, Got: {found_email}", data)
-                else:
-                    self.log_test(f"Text Email Extraction - {test_case['name']}", False, 
-                                f"HTTP {response.status_code}: {response.text}")
-                    
-            except Exception as e:
-                self.log_test(f"Text Email Extraction - {test_case['name']}", False, 
-                            f"Request error: {str(e)}")
-                
-            time.sleep(0.5)  # Rate limiting
+        print("\n🔧 Testing Account Management CRUD Operations...")
+        created_accounts = self.test_account_management_crud_operations()
+        
+        print("\n🔄 Testing Account Rotation Logic...")
+        self.test_account_rotation_logic()
+        
+        print("\n📊 Testing Account Statistics Overview...")
+        self.test_account_statistics_overview()
+        
+        print("\n🗄️ Testing Database Schema Validation...")
+        self.test_database_schema_validation()
+        
+        print("\n⚙️ Testing Environment Configuration...")
+        self.test_environment_configuration()
+        
+        print("\n🔗 Testing Integration with Existing System...")
+        self.test_integration_with_existing_system()
+        
+        print("\n⚠️ Testing Error Handling and Validation...")
+        self.test_error_handling_and_validation()
+        
+        # Cleanup any remaining test accounts
+        if created_accounts:
+            print(f"\n🧹 Cleaning up {len(created_accounts)} test accounts...")
+            for account_id in created_accounts:
+                try:
+                    requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=5)
+                except:
+                    pass  # Cleanup failures are not critical
+        
+        return True
     
-    def test_channel_email_extraction_endpoint(self):
-        """Test the debug channel email extraction endpoint with real YouTube channels"""
-        # Test channels with known email patterns (these are public channels for testing)
-        test_channels = [
-            {
-                "name": "Popular Tech Channel",
-                "channel_id": "UCBJycsmduvYEL83R_U4JriQ",  # Marques Brownlee - likely has business email
-                "description": "Large tech channel - should have business contact info"
-            },
-            {
-                "name": "Business Channel",
-                "channel_id": "UC-lHJZR3Gqxm24_Vd_AJ5Yw",  # PewDiePie - large channel
-                "description": "Major creator - likely has business email"
-            },
-            {
-                "name": "Smaller Channel Test",
-                "channel_id": "UCsT0YIqwnpJCM-mx7-gSA4Q",  # TEDx Talks
-                "description": "TEDx channel - should have contact info"
-            }
-        ]
+    def generate_report(self):
+        """Generate test report"""
+        total_tests = len(self.test_results)
+        passed_tests = total_tests - len(self.failed_tests)
         
-        endpoint = f"{self.backend_url}/debug/test-email-extraction"
+        print("\n" + "=" * 70)
+        print("📊 YOUTUBE ACCOUNT MANAGEMENT SYSTEM TEST REPORT")
+        print("🎯 2captcha Integration Phase 1 Step 1")
+        print("=" * 70)
+        print(f"Total Tests: {total_tests}")
+        print(f"Passed: {passed_tests}")
+        print(f"Failed: {len(self.failed_tests)}")
+        print(f"Success Rate: {(passed_tests/total_tests)*100:.1f}%" if total_tests > 0 else "No tests run")
         
-        for test_channel in test_channels:
-            try:
-                print(f"\n🔍 Testing channel: {test_channel['name']} ({test_channel['channel_id']})")
-                
-                response = requests.post(endpoint, params={"channel_id": test_channel["channel_id"]}, timeout=30)
-                
-                if response.status_code == 200:
+        if self.failed_tests:
+            print("\n❌ FAILED TESTS:")
+            for test in self.failed_tests:
+                print(f"  • {test['test_name']}: {test['details']}")
+        
+        print("\n🔍 KEY FINDINGS:")
+        
+        # Analyze results by test category
+        categories = {
+            "CRUD Operations": [t for t in self.test_results if any(crud in t["test_name"] for crud in ["Add Account", "List All", "Get Specific", "Update Status", "Delete Account"])],
+            "Account Rotation": [t for t in self.test_results if "Available Account" in t["test_name"]],
+            "Statistics": [t for t in self.test_results if "Statistics" in t["test_name"]],
+            "Database Schema": [t for t in self.test_results if "Schema" in t["test_name"]],
+            "Environment Config": [t for t in self.test_results if "Environment" in t["test_name"]],
+            "System Integration": [t for t in self.test_results if "Existing System" in t["test_name"]],
+            "Error Handling": [t for t in self.test_results if "Error Handling" in t["test_name"] or "Duplicate" in t["test_name"] or "Invalid" in t["test_name"]]
+        }
+        
+        for category, tests in categories.items():
+            if tests:
+                passed = len([t for t in tests if t["success"]])
+                print(f"  • {category}: {passed}/{len(tests)} passed")
+        
+        # Critical issues assessment
+        critical_failures = []
+        for test in self.failed_tests:
+            if any(critical in test["test_name"] for critical in ["Add Account", "List All", "Get Available", "Database Schema"]):
+                critical_failures.append(test["test_name"])
+        
+        # Overall assessment
+        if len(self.failed_tests) == 0:
+            print("\n✅ OVERALL: YouTube Account Management System is working perfectly!")
+            print("🎯 Ready for Phase 1 Step 2: Enhanced email extraction with 2captcha fallback")
+        elif critical_failures:
+            print(f"\n❌ OVERALL: Critical issues found in core functionality: {', '.join(critical_failures)}")
+            print("🚨 Must fix critical issues before proceeding to next phase")
+        elif len(self.failed_tests) <= 3:
+            print("\n⚠️ OVERALL: Account management mostly working with minor issues")
+            print("🔧 Minor fixes recommended but system is functional")
+        else:
+            print("\n❌ OVERALL: Multiple issues found in account management system")
+            print("🛠️ Significant fixes needed before next phase")
+        
+        return len(critical_failures) == 0
+
+def main():
+    """Main test execution"""
+    tester = YouTubeAccountManagementTester()
+    
+    success = tester.run_all_tests()
+    if success:
+        overall_success = tester.generate_report()
+        sys.exit(0 if overall_success else 1)
+    else:
+        print("❌ Tests could not be completed due to connectivity issues")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
                     data = response.json()
                     
                     if data.get("success"):
