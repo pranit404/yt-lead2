@@ -198,6 +198,115 @@ async def send_discord_notification(message: str):
     except Exception as e:
         logger.error(f"Failed to send Discord notification: {e}")
 
+# Account Management Functions
+async def get_available_account() -> Optional[YouTubeAccount]:
+    """Get an available YouTube account for scraping"""
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Find accounts that are active and not rate limited
+        accounts_cursor = db.youtube_accounts.find({
+            "status": "active",
+            "$or": [
+                {"rate_limit_reset": {"$lt": now}},
+                {"rate_limit_reset": None}
+            ],
+            "daily_requests_count": {"$lt": MAX_DAILY_REQUESTS_PER_ACCOUNT}
+        }).sort("last_used", 1).limit(1)
+        
+        accounts = await accounts_cursor.to_list(1)
+        
+        if accounts:
+            account_doc = accounts[0]
+            # Reset daily count if it's a new day
+            if account_doc.get('last_used'):
+                last_used = account_doc['last_used']
+                if isinstance(last_used, str):
+                    last_used = parser.parse(last_used)
+                if now.date() > last_used.date():
+                    account_doc['daily_requests_count'] = 0
+            
+            return YouTubeAccount(**account_doc)
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error getting available account: {e}")
+        return None
+
+async def update_account_usage(account_id: str, success: bool = True, error_message: str = None):
+    """Update account usage statistics"""
+    try:
+        now = datetime.now(timezone.utc)
+        update_data = {
+            "last_used": now,
+            "updated_at": now,
+            "$inc": {
+                "daily_requests_count": 1,
+                "total_requests_count": 1
+            }
+        }
+        
+        if error_message:
+            update_data["last_error"] = error_message
+            
+        # Update success rate (simple moving average)
+        account_doc = await db.youtube_accounts.find_one({"id": account_id})
+        if account_doc:
+            current_rate = account_doc.get('success_rate', 100.0)
+            total_requests = account_doc.get('total_requests_count', 0)
+            
+            # Simple weighted average (give more weight to recent results)
+            if total_requests > 0:
+                weight = min(0.1, 1.0 / total_requests)  # 10% max weight for new result
+                new_rate = current_rate * (1 - weight) + (100.0 if success else 0.0) * weight
+                update_data["success_rate"] = round(new_rate, 2)
+        
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {"$set": update_data}
+        )
+        
+        logger.info(f"Updated account {account_id} usage. Success: {success}")
+        
+    except Exception as e:
+        logger.error(f"Error updating account usage for {account_id}: {e}")
+
+async def mark_account_banned(account_id: str, reason: str = "Detected as banned"):
+    """Mark an account as banned"""
+    try:
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "status": "banned",
+                    "last_error": reason,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        await send_discord_notification(f"🚫 **Account Banned** \n📧 Account: {account_id}\n💬 Reason: {reason}")
+        logger.warning(f"Marked account {account_id} as banned: {reason}")
+        
+    except Exception as e:
+        logger.error(f"Error marking account as banned {account_id}: {e}")
+
+async def reset_daily_limits():
+    """Reset daily request counts for all accounts (should be called daily)"""
+    try:
+        await db.youtube_accounts.update_many(
+            {},
+            {
+                "$set": {
+                    "daily_requests_count": 0,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        logger.info("Daily limits reset for all accounts")
+    except Exception as e:
+        logger.error(f"Error resetting daily limits: {e}")
+
 def get_youtube_service():
     """Get YouTube API service with key rotation"""
     global current_key_index
