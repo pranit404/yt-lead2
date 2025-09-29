@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 Backend Testing Suite for YouTube Lead Generation Platform
-Focus: Email Extraction Bug Fix Testing
+Focus: YouTube Account Management System Testing (2captcha Integration Phase 1 Step 1)
 """
 
 import requests
 import json
 import sys
 import time
+import uuid
 from typing import Dict, List, Optional
 
 # Backend URL Configuration
