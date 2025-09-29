@@ -289,10 +289,20 @@ def extract_email_from_text(text: str) -> Optional[str]:
 async def scrape_channel_about_page(channel_id: str) -> tuple[Optional[str], Optional[str]]:
     """Scrape channel about page for email and content using Playwright with improved targeting"""
     try:
-        urls_to_try = [
-            f"https://www.youtube.com/channel/{channel_id}/about",
-            f"https://www.youtube.com/@{channel_id}/about"
-        ]
+        # Handle different channel ID formats
+        if channel_id.startswith('@'):
+            urls_to_try = [
+                f"https://www.youtube.com/{channel_id}/about",  # @username format
+            ]
+        elif channel_id.startswith('UC') and len(channel_id) == 24:
+            urls_to_try = [
+                f"https://www.youtube.com/channel/{channel_id}/about",  # UCxxxxx format
+            ]
+        else:
+            urls_to_try = [
+                f"https://www.youtube.com/@{channel_id}/about",  # assume username without @
+                f"https://www.youtube.com/channel/{channel_id}/about"  # fallback
+            ]
         
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
