@@ -1287,7 +1287,7 @@ class ProxyManagementTester:
 
 def main():
     """Main test execution"""
-    tester = YouTubeAccountManagementTester()
+    tester = ProxyManagementTester()
     
     success = tester.run_all_tests()
     if success:
