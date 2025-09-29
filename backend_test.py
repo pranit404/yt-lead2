@@ -11,7 +11,7 @@ import time
 from typing import Dict, List, Optional
 
 # Backend URL Configuration
-BACKEND_URL = "https://demobackend.emergentagent.com/api"
+BACKEND_URL = "http://localhost:8001/api"
 
 class EmailExtractionTester:
     def __init__(self):
