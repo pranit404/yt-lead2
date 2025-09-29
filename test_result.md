@@ -153,6 +153,21 @@ backend:
         -agent: "main"
         -comment: "Replaced collaboration emails with client acquisition outreach for video editing services. Uses Gemini AI for personalized emails offering professional video editing services to creators."
 
+  - task: "Email Extraction Bug Fix"
+    implemented: true
+    working: false
+    file: "/app/backend/server.py"
+    stuck_count: 1
+    priority: "critical"
+    needs_retesting: true
+    status_history:
+        -working: false
+        -agent: "user"
+        -comment: "User reported ALL emails in YouTube about pages were being missed by the software"
+        -working: false
+        -agent: "main"
+        -comment: "Fixed email extraction with improved web scraping (better element targeting, 'Show more' button handling, longer wait times) and enhanced email regex patterns (handles obfuscation, multiple patterns, better validation). Added debug endpoints for testing."
+
 frontend:
   - task: "Enhanced Frontend Dashboard"
     implemented: true  
