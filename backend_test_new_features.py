@@ -359,8 +359,11 @@ class NewFeaturesTester:
                     response = requests.get(f"{self.backend_url}{endpoint_test['endpoint']}", timeout=10)
                 else:
                     payload = endpoint_test.get("payload", {})
-                    response = requests.post(f"{self.backend_url}{endpoint_test['endpoint']}", 
-                                           json=payload, timeout=10)
+                    if payload:
+                        response = requests.post(f"{self.backend_url}{endpoint_test['endpoint']}", 
+                                               json=payload, timeout=10)
+                    else:
+                        response = requests.post(f"{self.backend_url}{endpoint_test['endpoint']}", timeout=10)
                 
                 if response.status_code in [200, 201]:
                     self.log_test(f"API Endpoint - {endpoint_test['name']}", True, 
