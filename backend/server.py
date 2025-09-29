@@ -27,6 +27,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from dateutil import parser
 import requests
+import ipaddress
 from urllib.parse import urlparse, parse_qs
 import html2text
 from playwright.async_api import async_playwright
