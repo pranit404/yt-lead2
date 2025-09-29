@@ -233,24 +233,29 @@ async def search_youtube_videos(keyword: str, max_results: int = 50):
         return []
 
 def extract_email_from_text(text: str) -> Optional[str]:
-    """Extract email address from text using improved regex patterns"""
+    """Extract email address from text using improved regex patterns with proper obfuscation handling"""
     if not text:
         return None
     
-    # Clean up common obfuscations first
-    cleaned_text = text.replace('[at]', '@').replace('(at)', '@').replace(' at ', '@')
-    cleaned_text = cleaned_text.replace('[dot]', '.').replace('(dot)', '.').replace(' dot ', '.')
+    # Clean up common obfuscations with proper space handling
+    # Use regex to handle spaces around obfuscated parts properly
+    cleaned_text = re.sub(r'\s*\[\s*at\s*\]\s*', '@', text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r'\s*\[\s*dot\s*\]\s*', '.', cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r'\s*\(\s*at\s*\)\s*', '@', cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r'\s*\(\s*dot\s*\)\s*', '.', cleaned_text, flags=re.IGNORECASE)
     
-    # Multiple regex patterns to catch different email formats
+    # Also handle common text obfuscations
+    cleaned_text = re.sub(r'\s+at\s+', '@', cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r'\s+dot\s+', '.', cleaned_text, flags=re.IGNORECASE)
+    
+    # Multiple regex patterns with underscore support for domains
     email_patterns = [
-        # Standard email pattern without word boundaries (more permissive)
-        r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
-        # Pattern with word boundaries (original)
-        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-        # Pattern for emails with spaces around them
-        r'\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\s+',
-        # Pattern for emails in contact contexts
-        r'(?:contact|email|reach|business)[\s:]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
+        # Standard email pattern with underscore support in domain
+        r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}',
+        # Pattern for context-based emails  
+        r'(?:contact|email|reach|business|inquiries?)[\s:]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,})',
+        # Pattern with word boundaries
+        r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}\b',
     ]
     
     all_matches = []
@@ -259,19 +264,21 @@ def extract_email_from_text(text: str) -> Optional[str]:
         matches = re.findall(pattern, cleaned_text, re.IGNORECASE)
         all_matches.extend(matches)
     
-    # Filter out invalid matches and return the first valid one
+    # Filter and validate matches
     for match in all_matches:
-        # If match is a tuple (from capture groups), get the email part
+        # Handle tuple matches from capture groups
         email = match if isinstance(match, str) else match[0] if match else ""
         email = email.strip().lower()
         
-        # Basic validation: ensure it has @ and . and reasonable length
+        # Enhanced validation
         if email and '@' in email and '.' in email and 5 <= len(email) <= 254:
-            # Additional validation: ensure domain part exists
             if email.count('@') == 1:
                 local, domain = email.split('@')
                 if local and domain and '.' in domain:
-                    return email
+                    # Additional check: ensure TLD is reasonable
+                    domain_parts = domain.split('.')
+                    if len(domain_parts) >= 2 and len(domain_parts[-1]) >= 2:
+                        return email
     
     return None
 
