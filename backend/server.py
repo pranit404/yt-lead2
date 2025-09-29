@@ -1815,12 +1815,12 @@ async def update_proxy_status(proxy_id: str, request: ProxyStatusUpdate):
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Proxy not found")
         
-        # Get updated proxy
+        # Get updated proxy for notification
         updated_proxy = await db.proxy_pool.find_one({"id": proxy_id})
         
         await send_discord_notification(f"🔄 **Proxy Status Updated** \n🌐 IP: {updated_proxy['ip']}:{updated_proxy['port']}\n📊 Status: {request.status}")
         
-        return ProxyConfig(**updated_proxy)
+        return {"message": "Proxy status updated successfully", "proxy_id": proxy_id, "new_status": request.status}
         
     except HTTPException:
         raise
