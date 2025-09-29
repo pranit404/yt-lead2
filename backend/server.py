@@ -832,6 +832,14 @@ async def process_lead_generation(status_id: str, request: LeadGenerationRequest
         
         for channel_id, channel_info in list(channels_dict.items())[:request.max_channels]:
             try:
+                # Check for deduplication - skip if channel already exists in database
+                existing_main_lead = await db.main_leads.find_one({"channel_id": channel_id})
+                existing_no_email_lead = await db.no_email_leads.find_one({"channel_id": channel_id})
+                
+                if existing_main_lead or existing_no_email_lead:
+                    logger.info(f"Channel {channel_id} already processed, skipping for deduplication")
+                    continue
+                
                 await db.processing_status.update_one(
                     {"id": status_id},
                     {"$set": {"current_step": f"processing_channel_{channels_processed + 1}", "updated_at": datetime.now(timezone.utc)}}
