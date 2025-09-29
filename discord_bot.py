@@ -21,6 +21,9 @@ MONGO_URL = "mongodb://localhost:27017"
 DB_NAME = "test_database"
 BACKEND_API_URL = "http://localhost:8001/api"
 
+# Global Settings
+SEND_EMAILS_ENABLED = os.environ.get('SEND_EMAILS_ENABLED', 'true').lower() == 'true'
+
 if not DISCORD_BOT_TOKEN:
     print("❌ Please set DISCORD_BOT_TOKEN environment variable and re-run.")
     sys.exit(1)
