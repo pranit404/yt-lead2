@@ -1876,10 +1876,11 @@ async def run_proxy_health_check(request: ProxyHealthCheckRequest = ProxyHealthC
                     failed_proxies.append(proxy.id)
         
         health_summary = {
+            "message": f"Health check completed. Checked {len(checked_proxies)} proxies.",
             "total_checked": len(checked_proxies),
             "healthy_count": len([p for p in checked_proxies if p["healthy"]]),
             "unhealthy_count": len(failed_proxies),
-            "checked_proxies": checked_proxies,
+            "checked": checked_proxies,
             "failed_proxy_ids": failed_proxies
         }
         
