@@ -1348,7 +1348,7 @@ async def get_youtube_account(account_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.put("/accounts/{account_id}/status")
-async def update_account_status(account_id: str, status: str):
+async def update_account_status(account_id: str, request: AccountStatusUpdate):
     """Update account status (active, banned, rate_limited, maintenance)"""
     try:
         valid_statuses = ["active", "banned", "rate_limited", "maintenance"]
