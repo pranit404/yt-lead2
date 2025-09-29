@@ -1435,6 +1435,29 @@ async def reset_accounts_daily_limits():
         logger.error(f"Error resetting daily limits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/accounts/get-available")
+async def get_next_available_account():
+    """Get the next available account for testing"""
+    try:
+        account = await get_available_account()
+        if account:
+            return {
+                "account_found": True,
+                "account_id": account.id,
+                "account_email": account.email,
+                "status": account.status,
+                "daily_requests": account.daily_requests_count,
+                "success_rate": account.success_rate
+            }
+        else:
+            return {
+                "account_found": False,
+                "message": "No available accounts found"
+            }
+    except Exception as e:
+        logger.error(f"Error getting available account: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Include the router in the main app
 app.include_router(api_router)
 
