@@ -74,6 +74,9 @@ current_key_index = 0
 SMTP_EMAIL = "nighthawks848@gmail.com"
 SMTP_PASSWORD = "nbhp idgp gsdo iuhx"
 
+# Global Settings
+SEND_EMAILS_ENABLED = os.environ.get('SEND_EMAILS_ENABLED', 'true').lower() == 'true'
+
 # Discord Configuration
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1417915138400587909/B9_tEDQKMZfemFvu0z2vy3z7HjVyCZf5PCAj6DmDuOdPira5wwvH_QJpZRjKTUPbzP3c"
 
