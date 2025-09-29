@@ -118,15 +118,20 @@ async def start_lead_generation(ctx,
                               max_videos: int = 2000,
                               min_frequency: float = 0.14,
                               max_frequency: float = 2.0,
+                              test_mode: str = "false",
                               *keywords):
     """
     Start lead generation with comprehensive parameters
-    Usage: !start <min_subs> <max_subs> [max_channels] [max_videos] [min_freq] [max_freq] <keywords...>
-    Example: !start 10000 1000000 500 2000 0.14 2.0 crypto trading bitcoin investment
+    Usage: !start <min_subs> <max_subs> [max_channels] [max_videos] [min_freq] [max_freq] [test_mode] <keywords...>
+    Example: !start 10000 1000000 500 2000 0.14 2.0 false crypto trading bitcoin investment
+    Example (test): !start 10000 1000000 500 2000 0.14 2.0 true crypto trading
     """
     if not keywords:
-        await ctx.send("❌ Please provide at least one keyword.\n**Usage:** `!start <min_subs> <max_subs> [max_channels] [max_videos] [min_freq] [max_freq] <keywords...>`")
+        await ctx.send("❌ Please provide at least one keyword.\n**Usage:** `!start <min_subs> <max_subs> [max_channels] [max_videos] [min_freq] [max_freq] [test_mode] <keywords...>`")
         return
+    
+    # Convert test_mode string to boolean
+    test_mode_bool = test_mode.lower() in ['true', 'yes', '1', 'on']
     
     # Prepare request data
     request_data = {
@@ -136,7 +141,8 @@ async def start_lead_generation(ctx,
         "subscriber_min": min_subs,
         "subscriber_max": max_subs,
         "content_frequency_min": min_frequency,
-        "content_frequency_max": max_frequency
+        "content_frequency_max": max_frequency,
+        "test_mode": test_mode_bool
     }
     
     # Send starting message
