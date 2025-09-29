@@ -2310,6 +2310,97 @@ async def test_text_email_extraction(text: str):
             "success": False
         }
 
+@api_router.post("/debug/test-authenticated-scraping")
+async def test_authenticated_scraping(channel_id: str):
+    """Debug endpoint to test authenticated channel scraping"""
+    try:
+        logger.info(f"Testing authenticated scraping for channel: {channel_id}")
+        
+        # Test with authentication
+        email_auth, content_auth = await scrape_channel_about_page(channel_id, use_authenticated_session=True)
+        
+        # Test without authentication for comparison
+        email_no_auth, content_no_auth = await scrape_channel_about_page(channel_id, use_authenticated_session=False)
+        
+        return {
+            "channel_id": channel_id,
+            "authenticated_scraping": {
+                "email_found": email_auth,
+                "content_length": len(content_auth) if content_auth else 0,
+                "content_preview": content_auth[:200] if content_auth else None
+            },
+            "non_authenticated_scraping": {
+                "email_found": email_no_auth,
+                "content_length": len(content_no_auth) if content_no_auth else 0,
+                "content_preview": content_no_auth[:200] if content_no_auth else None
+            },
+            "comparison": {
+                "auth_better": (email_auth and not email_no_auth) or 
+                              (content_auth and len(content_auth) > len(content_no_auth or "")),
+                "same_results": email_auth == email_no_auth
+            },
+            "success": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in authenticated scraping test: {e}")
+        return {
+            "channel_id": channel_id,
+            "error": str(e),
+            "success": False
+        }
+
+@api_router.get("/accounts/session/status")
+async def get_all_accounts_session_status():
+    """Get session status for all YouTube accounts"""
+    try:
+        accounts_cursor = db.youtube_accounts.find({})
+        accounts = await accounts_cursor.to_list(1000)
+        
+        session_statuses = []
+        
+        for account_doc in accounts:
+            account = YouTubeAccount(**account_doc)
+            
+            # Check session validity
+            is_valid = await validate_session(account)
+            
+            session_age = None
+            if account.last_used:
+                session_age = (datetime.now(timezone.utc) - account.last_used).total_seconds() / 3600  # hours
+            
+            session_statuses.append({
+                "account_id": account.id,
+                "email": account.email,
+                "status": account.status,
+                "session_valid": is_valid,
+                "last_used": account.last_used.isoformat() if account.last_used else None,
+                "session_age_hours": round(session_age, 2) if session_age else None,
+                "has_cookies": bool(account.cookies),
+                "has_session_data": bool(account.session_data),
+                "daily_requests": account.daily_requests_count,
+                "success_rate": account.success_rate
+            })
+        
+        # Calculate summary statistics
+        total_accounts = len(session_statuses)
+        valid_sessions = sum(1 for s in session_statuses if s["session_valid"])
+        active_accounts = sum(1 for s in session_statuses if s["status"] == "active")
+        
+        return {
+            "accounts": session_statuses,
+            "summary": {
+                "total_accounts": total_accounts,
+                "active_accounts": active_accounts,
+                "valid_sessions": valid_sessions,
+                "session_success_rate": round((valid_sessions / total_accounts * 100), 2) if total_accounts > 0 else 0
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting accounts session status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/settings/email-sending")
 async def get_email_sending_status():
     """Get current email sending status"""
