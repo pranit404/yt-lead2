@@ -813,26 +813,45 @@ class YouTubeAccountManagementTester:
             time.sleep(1)
     
     def run_all_tests(self):
-        """Run all email extraction tests"""
-        print("🚀 Starting Email Extraction Bug Fix Testing")
-        print("=" * 60)
+        """Run all YouTube Account Management System tests"""
+        print("🚀 Starting YouTube Account Management System Testing")
+        print("🎯 2captcha Integration Phase 1 Step 1")
+        print("=" * 70)
         
         # Test 1: Basic connectivity
         if not self.test_backend_connectivity():
             print("❌ Backend not accessible. Stopping tests.")
             return False
         
-        print("\n📧 Testing Text Email Extraction Endpoint...")
-        self.test_text_email_extraction_endpoint()
+        print("\n🔧 Testing Account Management CRUD Operations...")
+        created_accounts = self.test_account_management_crud_operations()
         
-        print("\n🔍 Testing Channel Email Extraction Endpoint...")
-        self.test_channel_email_extraction_endpoint()
+        print("\n🔄 Testing Account Rotation Logic...")
+        self.test_account_rotation_logic()
         
-        print("\n🧪 Testing Email Regex Patterns...")
-        self.test_email_regex_patterns()
+        print("\n📊 Testing Account Statistics Overview...")
+        self.test_account_statistics_overview()
         
-        print("\n⚠️ Testing Error Handling...")
-        self.test_error_handling()
+        print("\n🗄️ Testing Database Schema Validation...")
+        self.test_database_schema_validation()
+        
+        print("\n⚙️ Testing Environment Configuration...")
+        self.test_environment_configuration()
+        
+        print("\n🔗 Testing Integration with Existing System...")
+        self.test_integration_with_existing_system()
+        
+        print("\n⚠️ Testing Error Handling and Validation...")
+        self.test_error_handling_and_validation()
+        
+        # Cleanup any remaining test accounts
+        if created_accounts:
+            print(f"\n🧹 Cleaning up {len(created_accounts)} test accounts...")
+            for account_id in created_accounts:
+                try:
+                    requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=5)
+                except:
+                    pass  # Cleanup failures are not critical
         
         return True
     
