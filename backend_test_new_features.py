@@ -288,9 +288,8 @@ class NewFeaturesTester:
         """Test lead generation with email sending disabled"""
         try:
             # First, disable email sending
-            email_payload = {"enabled": False}
-            email_response = requests.post(f"{self.backend_url}/settings/email-sending", 
-                                         json=email_payload, timeout=10)
+            email_response = requests.post(f"{self.backend_url}/settings/email-sending?enabled=false", 
+                                         timeout=10)
             
             if email_response.status_code != 200:
                 self.log_test("Lead Generation Email Disabled", False, 
