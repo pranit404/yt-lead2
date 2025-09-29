@@ -189,6 +189,9 @@ class AccountAddRequest(BaseModel):
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
 
+class AccountStatusUpdate(BaseModel):
+    status: str
+
 # Utility Functions
 async def send_discord_notification(message: str):
     """Send notification to Discord webhook"""
