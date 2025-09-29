@@ -1110,6 +1110,27 @@ async def test_text_email_extraction(text: str):
             "success": False
         }
 
+@api_router.get("/settings/email-sending")
+async def get_email_sending_status():
+    """Get current email sending status"""
+    return {
+        "email_sending_enabled": SEND_EMAILS_ENABLED,
+        "status": "enabled" if SEND_EMAILS_ENABLED else "disabled"
+    }
+
+@api_router.post("/settings/email-sending")
+async def toggle_email_sending(enabled: bool):
+    """Toggle email sending on/off"""
+    global SEND_EMAILS_ENABLED
+    SEND_EMAILS_ENABLED = enabled
+    os.environ['SEND_EMAILS_ENABLED'] = str(enabled).lower()
+    
+    return {
+        "email_sending_enabled": SEND_EMAILS_ENABLED,
+        "status": "enabled" if SEND_EMAILS_ENABLED else "disabled",
+        "message": f"Email sending {'enabled' if enabled else 'disabled'} successfully"
+    }
+
 # Include the router in the main app
 app.include_router(api_router)
 
