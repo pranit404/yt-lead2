@@ -4208,6 +4208,9 @@ async def process_channel_with_email(channel: Channel):
             channel.latest_video_title = latest_video['title']
             channel.latest_video_date = latest_video['publishedAt']
             
+            # Generate video URLs for AI analysis
+            video_urls = get_video_urls_from_data(videos)
+            
             comments = await get_video_comments(latest_video['videoId'], 100)
             channel.comments_analyzed = len(comments)
             
@@ -4222,7 +4225,8 @@ async def process_channel_with_email(channel: Channel):
                 email_content = await generate_client_outreach_email(
                     channel.dict(),
                     latest_video,
-                    top_comment or {}
+                    top_comment or {},
+                    video_urls  # Pass video URLs for AI analysis
                 )
                 
                 channel.email_subject = email_content.get('subject', '')
