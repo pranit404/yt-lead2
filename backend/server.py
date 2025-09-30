@@ -4902,8 +4902,7 @@ async def get_detection_statistics():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Include the router in the main app
-        
-        page = session_info["page"]
+app.include_router(api_router)
         test_results = {
             "account_id": account_id,
             "session_id": session_info["session_id"],
