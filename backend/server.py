@@ -6463,6 +6463,9 @@ async def generate_error_recommendations(error_patterns: dict, account_errors: d
 async def analyze_channel_and_send_email(request: ChannelAnalysisRequest):
     """Analyze a YouTube channel and optionally send outreach email"""
     try:
+        channel_handle = request.channel_handle
+        send_to_email = request.send_to_email
+        
         logger.info(f"Starting channel analysis for: {channel_handle}")
         
         # Initialize analysis results
