@@ -3566,8 +3566,303 @@ async def process_queue_batch():
     """Legacy batch processor - redirects to smart processor"""
     return await smart_queue_processor()
 
-# API Routes
-@api_router.post("/lead-generation/start", response_model=ProcessingStatus)
+async def handle_queue_request_failure(request_id: str, account_id: str, proxy_id: str, error_message: str):
+    """Handle failed queue request with intelligent retry and recovery logic"""
+    try:
+        logger.info(f"🔧 Handling failure for request {request_id}: {error_message}")
+        
+        # Get current request details
+        request_doc = await db.scraping_queue.find_one({"id": request_id})
+        if not request_doc:
+            return {"retry_scheduled": False, "reason": "Request not found"}
+        
+        current_attempts = request_doc.get("attempts", 0)
+        
+        # Detect rate limit patterns
+        is_rate_limited = await detect_rate_limit_from_error(error_message)
+        is_account_blocked = await detect_account_block_from_error(error_message)
+        is_ip_blocked = await detect_ip_block_from_error(error_message)
+        
+        # Handle different error types
+        if is_rate_limited:
+            logger.warning(f"⏱️ Rate limit detected for request {request_id}")
+            await handle_rate_limit_recovery(account_id, proxy_id, request_id)
+            
+        elif is_account_blocked:
+            logger.warning(f"🚫 Account block detected for request {request_id}")
+            await handle_account_block_recovery(account_id, request_id)
+            
+        elif is_ip_blocked:
+            logger.warning(f"🌐 IP block detected for request {request_id}")
+            await handle_ip_block_recovery(proxy_id, request_id)
+        
+        # Determine if retry should be scheduled
+        if current_attempts < QUEUE_RETRY_ATTEMPTS:
+            # Calculate exponential backoff delay
+            base_delay = QUEUE_RETRY_DELAY_MINUTES
+            exponential_delay = base_delay * (2 ** (current_attempts - 1))
+            max_delay = 120  # Maximum 2 hours delay
+            retry_delay = min(exponential_delay, max_delay)
+            
+            # Schedule retry with intelligent account/proxy rotation
+            retry_time = datetime.now(timezone.utc) + timedelta(minutes=retry_delay)
+            
+            await db.scraping_queue.update_one(
+                {"id": request_id},
+                {
+                    "$set": {
+                        "status": "pending",
+                        "scheduled_time": retry_time,
+                        "account_id": None,  # Clear account assignment for rotation
+                        "proxy_id": None,    # Clear proxy assignment for rotation
+                        "error_history": request_doc.get("error_history", []) + [
+                            {
+                                "error": error_message,
+                                "timestamp": datetime.now(timezone.utc),
+                                "account_id": account_id,
+                                "proxy_id": proxy_id,
+                                "attempt": current_attempts
+                            }
+                        ]
+                    }
+                }
+            )
+            
+            logger.info(f"🔄 Scheduled retry for request {request_id} in {retry_delay} minutes")
+            await send_discord_notification(
+                f"🔄 **Request Retry Scheduled**\n"
+                f"📋 Request: {request_id}\n"
+                f"⏰ Retry in: {retry_delay} minutes\n"
+                f"🔢 Attempt: {current_attempts + 1}/{QUEUE_RETRY_ATTEMPTS}\n"
+                f"❌ Error: {error_message[:100]}..."
+            )
+            
+            return {"retry_scheduled": True, "retry_delay": retry_delay}
+        else:
+            # Max attempts reached - mark as failed
+            await db.scraping_queue.update_one(
+                {"id": request_id},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "failed_at": datetime.now(timezone.utc),
+                        "final_error": error_message,
+                        "total_attempts": current_attempts
+                    }
+                }
+            )
+            
+            logger.error(f"❌ Request {request_id} failed permanently after {current_attempts} attempts")
+            await send_discord_notification(
+                f"💀 **Request Failed Permanently**\n"
+                f"📋 Request: {request_id}\n"
+                f"🔢 Attempts: {current_attempts}/{QUEUE_RETRY_ATTEMPTS}\n"
+                f"❌ Final Error: {error_message[:150]}..."
+            )
+            
+            return {"retry_scheduled": False, "reason": "Max attempts reached"}
+    
+    except Exception as e:
+        logger.error(f"Error handling queue request failure: {e}")
+        return {"retry_scheduled": False, "reason": str(e)}
+
+async def detect_rate_limit_from_error(error_message: str):
+    """Detect rate limit patterns from error messages"""
+    rate_limit_patterns = [
+        "rate limit", "too many requests", "429", "quota exceeded",
+        "throttled", "slow down", "rate exceeded", "request limit"
+    ]
+    
+    error_lower = error_message.lower()
+    return any(pattern in error_lower for pattern in rate_limit_patterns)
+
+async def detect_account_block_from_error(error_message: str):
+    """Detect account block patterns from error messages"""
+    account_block_patterns = [
+        "account suspended", "account blocked", "login failed",
+        "authentication failed", "invalid credentials", "account locked",
+        "banned", "restricted account", "verification required"
+    ]
+    
+    error_lower = error_message.lower()
+    return any(pattern in error_lower for pattern in account_block_patterns)
+
+async def detect_ip_block_from_error(error_message: str):
+    """Detect IP block patterns from error messages"""
+    ip_block_patterns = [
+        "ip blocked", "ip banned", "access denied", "connection refused",
+        "network error", "proxy error", "ip restricted", "geo-blocked"
+    ]
+    
+    error_lower = error_message.lower()
+    return any(pattern in error_lower for pattern in ip_block_patterns)
+
+async def handle_rate_limit_recovery(account_id: str, proxy_id: str, request_id: str):
+    """Handle rate limit recovery with account cooldown"""
+    try:
+        # Apply cooldown to account
+        cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=ACCOUNT_COOLDOWN_MINUTES)
+        
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "status": "rate_limited",
+                    "rate_limit_reset": cooldown_until,
+                    "cooldown_until": cooldown_until
+                }
+            }
+        )
+        
+        logger.info(f"🕐 Applied {ACCOUNT_COOLDOWN_MINUTES} minute cooldown to account {account_id}")
+        
+        # Also apply cooldown to proxy if used
+        if proxy_id:
+            await db.proxy_pool.update_one(
+                {"id": proxy_id},
+                {
+                    "$set": {
+                        "status": "rate_limited",
+                        "cooldown_until": datetime.now(timezone.utc) + timedelta(minutes=PROXY_COOLDOWN_MINUTES)
+                    }
+                }
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in rate limit recovery: {e}")
+
+async def handle_account_block_recovery(account_id: str, request_id: str):
+    """Handle account block recovery"""
+    try:
+        # Mark account as problematic
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "status": "needs_verification",
+                    "last_error": "Account blocked/suspended",
+                    "error_count": {"$inc": 1}
+                }
+            }
+        )
+        
+        # Try to get alternative account
+        alternative_account = await get_healthiest_account_for_queue()
+        if alternative_account and alternative_account != account_id:
+            logger.info(f"🔄 Switching from blocked account {account_id} to {alternative_account}")
+            
+            await db.scraping_queue.update_one(
+                {"id": request_id},
+                {"$set": {"account_id": alternative_account}}
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in account block recovery: {e}")
+
+async def handle_ip_block_recovery(proxy_id: str, request_id: str):
+    """Handle IP block recovery with proxy rotation"""
+    try:
+        if proxy_id:
+            # Mark proxy as blocked
+            await db.proxy_pool.update_one(
+                {"id": proxy_id},
+                {
+                    "$set": {
+                        "status": "blocked",
+                        "blocked_at": datetime.now(timezone.utc),
+                        "health_status": "unhealthy"
+                    }
+                }
+            )
+            
+            # Get alternative proxy
+            alternative_proxy = await get_available_proxy()
+            if alternative_proxy:
+                logger.info(f"🌐 Switching from blocked proxy {proxy_id} to {alternative_proxy['id']}")
+                
+                await db.scraping_queue.update_one(
+                    {"id": request_id},
+                    {"$set": {"proxy_id": alternative_proxy["id"]}}
+                )
+    
+    except Exception as e:
+        logger.error(f"Error in IP block recovery: {e}")
+
+async def update_account_success_metrics(account_id: str, success: bool):
+    """Update account success rate and usage metrics"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Get current metrics
+        account = await db.youtube_accounts.find_one({"id": account_id})
+        if not account:
+            return
+        
+        current_success_count = account.get("success_count", 0)
+        current_total_requests = account.get("total_requests_count", 0)
+        
+        # Update metrics
+        new_total = current_total_requests + 1
+        new_success = current_success_count + (1 if success else 0)
+        new_success_rate = (new_success / new_total) * 100 if new_total > 0 else 100
+        
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "last_used": current_time,
+                    "success_count": new_success,
+                    "total_requests_count": new_total,
+                    "success_rate": new_success_rate
+                },
+                "$inc": {
+                    "daily_requests_count": 1
+                }
+            }
+        )
+        
+        logger.info(f"📊 Updated metrics for account {account_id}: {new_success_rate:.1f}% success rate")
+    
+    except Exception as e:
+        logger.error(f"Error updating account success metrics: {e}")
+
+async def store_lead_with_email(channel_id: str, extraction_data: dict):
+    """Store lead with email in main_leads collection"""
+    try:
+        lead_data = {
+            "id": str(uuid.uuid4()),
+            "channel_id": channel_id,
+            "email": extraction_data.get("email"),
+            "email_status": "found",
+            "extraction_method": extraction_data.get("method", "unknown"),
+            "confidence_score": extraction_data.get("confidence", 75),
+            "channel_data": extraction_data.get("channel_info", {}),
+            "processing_timestamp": datetime.now(timezone.utc)
+        }
+        
+        await db.main_leads.insert_one(lead_data)
+        logger.info(f"✅ Stored lead with email: {channel_id}")
+    
+    except Exception as e:
+        logger.error(f"Error storing lead with email: {e}")
+
+async def store_lead_without_email(channel_id: str, extraction_data: dict):
+    """Store lead without email in no_email_leads collection"""
+    try:
+        lead_data = {
+            "id": str(uuid.uuid4()),
+            "channel_id": channel_id,
+            "email_status": "not_found",
+            "extraction_attempts": extraction_data.get("attempts", 1),
+            "channel_data": extraction_data.get("channel_info", {}),
+            "processing_timestamp": datetime.now(timezone.utc)
+        }
+        
+        await db.no_email_leads.insert_one(lead_data)
+        logger.info(f"📝 Stored lead without email: {channel_id}")
+    
+    except Exception as e:
+        logger.error(f"Error storing lead without email: {e}")
 async def start_lead_generation(request: LeadGenerationRequest, background_tasks: BackgroundTasks):
     """Start the lead generation process"""
     status = ProcessingStatus(
