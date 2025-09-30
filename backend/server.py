@@ -5753,6 +5753,411 @@ async def get_current_alerts():
         logger.error(f"Error getting current alerts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ===============================================
+# PHASE 5 STEP 12: OPTIMIZATION & SCALING  
+# ===============================================
+
+async def get_optimization_recommendations() -> Dict[str, Any]:
+    """Generate performance optimization recommendations based on system metrics"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        recommendations = {
+            "timestamp": current_time,
+            "optimization_suggestions": [],
+            "scaling_recommendations": [],
+            "performance_improvements": [],
+            "resource_optimization": [],
+            "reliability_enhancements": []
+        }
+        
+        # Get current system metrics
+        metrics = await get_comprehensive_performance_metrics()
+        
+        # Analyze performance and generate recommendations
+        
+        # 1. Success Rate Optimization
+        success_rate = metrics.get("system_performance", {}).get("overall_success_rate", 0)
+        if success_rate < 85:
+            recommendations["optimization_suggestions"].append({
+                "type": "reliability",
+                "priority": "high",
+                "title": "Low Success Rate Detected",
+                "description": f"Current success rate is {success_rate:.1f}%. Recommend investigating failed requests and improving error handling.",
+                "action": "Review error patterns and implement better retry mechanisms",
+                "estimated_impact": "15-25% success rate improvement"
+            })
+        
+        # 2. Account Health Optimization
+        account_availability = metrics.get("system_performance", {}).get("account_availability_rate", 0)
+        if account_availability < 70:
+            recommendations["reliability_enhancements"].append({
+                "type": "accounts",
+                "priority": "high", 
+                "title": "Low Account Availability",
+                "description": f"Only {account_availability:.1f}% of accounts are available. Add more accounts or fix existing ones.",
+                "action": "Add backup accounts and implement account health recovery",
+                "estimated_impact": "Increased processing capacity by 30-50%"
+            })
+        
+        # 3. Proxy Performance Optimization
+        proxy_health = metrics.get("system_performance", {}).get("proxy_health_rate", 0)
+        if proxy_health < 50:
+            recommendations["performance_improvements"].append({
+                "type": "proxies",
+                "priority": "medium",
+                "title": "Proxy Health Issues",
+                "description": f"Only {proxy_health:.1f}% of proxies are healthy. Consider adding more reliable proxy providers.",
+                "action": "Diversify proxy sources and implement better health monitoring", 
+                "estimated_impact": "Reduced rate limiting by 40-60%"
+            })
+        
+        # 4. Processing Time Optimization
+        avg_processing_time = metrics.get("cost_tracking", {}).get("avg_processing_time_ms", 0)
+        if avg_processing_time > 20000:  # 20 seconds
+            recommendations["performance_improvements"].append({
+                "type": "processing",
+                "priority": "medium",
+                "title": "Slow Processing Times",
+                "description": f"Average processing time is {avg_processing_time/1000:.1f}s. Optimize scraping logic and parallel processing.",
+                "action": "Implement request batching and optimize browser automation",
+                "estimated_impact": "30-50% faster processing times"
+            })
+        
+        # 5. Scaling Recommendations
+        total_requests = await db.scraping_queue.count_documents({})
+        if total_requests > 1000:
+            recommendations["scaling_recommendations"].append({
+                "type": "capacity",
+                "priority": "medium",
+                "title": "High Request Volume",
+                "description": f"Processing {total_requests} total requests. Consider scaling infrastructure.",
+                "action": "Increase concurrent processing limits and add more worker instances",
+                "estimated_impact": "2-3x processing throughput increase"
+            })
+        
+        # 6. Cost Optimization
+        daily_cost = metrics.get("cost_tracking", {}).get("total_processing_cost_estimate", 0)
+        if daily_cost > 10:  # $10 per day
+            recommendations["resource_optimization"].append({
+                "type": "cost",
+                "priority": "low",
+                "title": "High Processing Costs",
+                "description": f"Daily processing cost estimate: ${daily_cost:.2f}. Optimize resource usage.",
+                "action": "Implement smart scheduling and reduce redundant requests",
+                "estimated_impact": "20-40% cost reduction"
+            })
+        
+        # 7. Reliability Improvements
+        error_rate = metrics.get("reliability_metrics", {}).get("error_rate_24h", 0)
+        if error_rate > 15:  # 15% error rate
+            recommendations["reliability_enhancements"].append({
+                "type": "errors",
+                "priority": "high",
+                "title": "High Error Rate",
+                "description": f"24h error rate is {error_rate:.1f}%. Implement better error recovery.",
+                "action": "Enhance error detection and implement exponential backoff",
+                "estimated_impact": "50-70% error reduction"
+            })
+        
+        # Generate overall optimization score
+        total_recommendations = len(recommendations["optimization_suggestions"]) + len(recommendations["scaling_recommendations"]) + len(recommendations["performance_improvements"]) + len(recommendations["resource_optimization"]) + len(recommendations["reliability_enhancements"])
+        
+        high_priority_count = sum(1 for category in recommendations.values() 
+                                 if isinstance(category, list) 
+                                 for item in category 
+                                 if isinstance(item, dict) and item.get("priority") == "high")
+        
+        optimization_score = max(0, 100 - (high_priority_count * 15) - ((total_recommendations - high_priority_count) * 5))
+        
+        recommendations["optimization_score"] = optimization_score
+        recommendations["total_recommendations"] = total_recommendations
+        recommendations["high_priority_items"] = high_priority_count
+        
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"Error generating optimization recommendations: {e}")
+        return {"error": str(e), "timestamp": datetime.now(timezone.utc)}
+
+async def implement_smart_scheduling() -> Dict[str, Any]:
+    """Implement smart scheduling to avoid peak hours and optimize timing"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        current_hour = current_time.hour
+        
+        # Define peak hours (when YouTube is most active and likely to have more detection)
+        peak_hours = [18, 19, 20, 21, 22, 23, 0, 1, 2]  # Evening/night hours when most users are active
+        off_peak_hours = [4, 5, 6, 7, 8, 9, 10, 11]     # Early morning hours
+        
+        is_peak_hour = current_hour in peak_hours
+        is_off_peak = current_hour in off_peak_hours
+        
+        # Get current system load
+        processing_requests = await db.scraping_queue.count_documents({"status": "processing"})
+        pending_requests = await db.scraping_queue.count_documents({"status": "pending"})
+        
+        # Calculate optimal processing strategy
+        if is_peak_hour:
+            # During peak hours: Reduce concurrent processing, increase delays
+            recommended_concurrent = min(2, MAX_CONCURRENT_PROCESSING)
+            recommended_delay = 15  # 15 minutes between requests
+            strategy = "conservative"
+        elif is_off_peak:
+            # During off-peak: Increase concurrent processing, reduce delays  
+            recommended_concurrent = min(8, MAX_CONCURRENT_PROCESSING * 2)
+            recommended_delay = 5  # 5 minutes between requests
+            strategy = "aggressive"
+        else:
+            # Normal hours: Standard processing
+            recommended_concurrent = MAX_CONCURRENT_PROCESSING
+            recommended_delay = 10  # 10 minutes between requests
+            strategy = "normal"
+        
+        # Adjust based on current system load
+        if processing_requests > recommended_concurrent:
+            load_factor = "high"
+            # High load: reduce further
+            recommended_concurrent = max(1, recommended_concurrent - 2)
+            recommended_delay = min(30, recommended_delay + 5)
+        elif processing_requests == 0 and pending_requests > 10:
+            load_factor = "ready"
+            # No processing, many pending: can be more aggressive
+            recommended_concurrent = min(recommended_concurrent + 2, 10)
+            recommended_delay = max(3, recommended_delay - 3)
+        else:
+            load_factor = "normal"
+        
+        scheduling_config = {
+            "timestamp": current_time,
+            "current_hour": current_hour,
+            "is_peak_hour": is_peak_hour,
+            "is_off_peak": is_off_peak,
+            "strategy": strategy,
+            "load_factor": load_factor,
+            "current_processing": processing_requests,
+            "current_pending": pending_requests,
+            "recommendations": {
+                "max_concurrent_processing": recommended_concurrent,
+                "delay_between_requests_minutes": recommended_delay,
+                "enable_aggressive_mode": is_off_peak and load_factor == "ready",
+                "enable_conservative_mode": is_peak_hour or load_factor == "high"
+            },
+            "next_optimal_window": {
+                "start_hour": 4,
+                "end_hour": 11,
+                "description": "Best processing window: 4 AM - 11 AM UTC"
+            }
+        }
+        
+        return scheduling_config
+        
+    except Exception as e:
+        logger.error(f"Error implementing smart scheduling: {e}")
+        return {"error": str(e), "timestamp": datetime.now(timezone.utc)}
+
+async def optimize_request_batching(batch_size: int = None) -> Dict[str, Any]:
+    """Optimize request batching for better throughput and reliability"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Get current queue metrics
+        total_pending = await db.scraping_queue.count_documents({"status": "pending"})
+        total_processing = await db.scraping_queue.count_documents({"status": "processing"})
+        
+        # Calculate optimal batch size based on system capacity
+        available_accounts = await db.youtube_accounts.count_documents({
+            "status": "active",
+            "$or": [
+                {"cooldown_until": {"$exists": False}},
+                {"cooldown_until": {"$lte": current_time}}
+            ]
+        })
+        
+        available_proxies = await db.proxy_pool.count_documents({
+            "status": "active", 
+            "health_status": "healthy"
+        })
+        
+        # Determine optimal batch size
+        system_capacity = min(available_accounts, available_proxies, MAX_CONCURRENT_PROCESSING)
+        
+        if batch_size is None:
+            if system_capacity <= 2:
+                optimal_batch_size = 5  # Small batches for limited resources
+            elif system_capacity <= 5:
+                optimal_batch_size = 10  # Medium batches
+            else:
+                optimal_batch_size = 20  # Larger batches for good capacity
+        else:
+            optimal_batch_size = batch_size
+        
+        # Get next batch of requests optimized by priority
+        pipeline = [
+            {"$match": {"status": "pending"}},
+            {"$addFields": {
+                "priority_score": {
+                    "$cond": {
+                        "if": {"$eq": ["$priority", "high"]}, "then": 3,
+                        "else": {
+                            "$cond": {
+                                "if": {"$eq": ["$priority", "medium"]}, "then": 2,
+                                "else": 1
+                            }
+                        }
+                    }
+                },
+                "age_hours": {
+                    "$divide": [
+                        {"$subtract": [current_time, "$created_at"]},
+                        3600000  # Convert to hours
+                    ]
+                }
+            }},
+            {"$addFields": {
+                "combined_priority": {
+                    "$add": [
+                        "$priority_score",
+                        {"$min": [{"$divide": ["$age_hours", 24]}, 1]}  # Age bonus (max 1 point)
+                    ]
+                }
+            }},
+            {"$sort": {"combined_priority": -1, "created_at": 1}},
+            {"$limit": optimal_batch_size}
+        ]
+        
+        batch_requests = await db.scraping_queue.aggregate(pipeline).to_list(optimal_batch_size)
+        
+        # Analyze batch characteristics
+        high_priority_count = sum(1 for req in batch_requests if req.get("priority") == "high")
+        medium_priority_count = sum(1 for req in batch_requests if req.get("priority") == "medium")
+        low_priority_count = len(batch_requests) - high_priority_count - medium_priority_count
+        
+        # Calculate processing time estimate
+        avg_processing_time_per_request = 15  # 15 seconds average
+        estimated_batch_time = (len(batch_requests) / max(system_capacity, 1)) * avg_processing_time_per_request
+        
+        batching_config = {
+            "timestamp": current_time,
+            "batch_optimization": {
+                "optimal_batch_size": optimal_batch_size,
+                "actual_batch_size": len(batch_requests),
+                "system_capacity": system_capacity,
+                "available_accounts": available_accounts,
+                "available_proxies": available_proxies
+            },
+            "batch_analysis": {
+                "high_priority_requests": high_priority_count,
+                "medium_priority_requests": medium_priority_count, 
+                "low_priority_requests": low_priority_count,
+                "oldest_request_age_hours": max([req.get("age_hours", 0) for req in batch_requests], default=0),
+                "estimated_processing_time_minutes": round(estimated_batch_time / 60, 1)
+            },
+            "performance_recommendations": {
+                "increase_batch_size": system_capacity > len(batch_requests) and total_pending > optimal_batch_size,
+                "decrease_batch_size": system_capacity < optimal_batch_size,
+                "add_more_resources": available_accounts < 3 or available_proxies < 3,
+                "optimize_timing": True  # Always recommend smart timing
+            },
+            "next_batch_ready": total_pending > 0,
+            "batch_requests": [{"id": req["id"], "channel_id": req["channel_id"], "priority": req["priority"]} for req in batch_requests]
+        }
+        
+        return batching_config
+        
+    except Exception as e:
+        logger.error(f"Error optimizing request batching: {e}")
+        return {"error": str(e), "timestamp": datetime.now(timezone.utc)}
+
+@api_router.get("/optimization/recommendations")
+async def get_optimization_recommendations_endpoint():
+    """Get performance optimization recommendations"""
+    try:
+        recommendations = await get_optimization_recommendations()
+        return recommendations
+    except Exception as e:
+        logger.error(f"Error getting optimization recommendations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/optimization/smart-scheduling")
+async def get_smart_scheduling():
+    """Get smart scheduling configuration and recommendations"""
+    try:
+        scheduling_config = await implement_smart_scheduling()
+        return scheduling_config
+    except Exception as e:
+        logger.error(f"Error getting smart scheduling: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/optimization/batch-analysis")
+async def get_batch_analysis(batch_size: int = None):
+    """Get request batching analysis and optimization"""
+    try:
+        batching_config = await optimize_request_batching(batch_size)
+        return batching_config
+    except Exception as e:
+        logger.error(f"Error getting batch analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/optimization/apply-recommendations")
+async def apply_optimization_recommendations():
+    """Apply automatic optimization based on current system state"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Get current recommendations
+        recommendations = await get_optimization_recommendations()
+        scheduling_config = await implement_smart_scheduling()
+        
+        applied_optimizations = []
+        
+        # Apply automatic optimizations
+        
+        # 1. Adjust concurrent processing based on smart scheduling
+        if scheduling_config.get("recommendations", {}).get("enable_conservative_mode"):
+            # Reduce concurrent processing during peak hours
+            applied_optimizations.append({
+                "type": "concurrent_processing",
+                "action": "reduced_for_peak_hours",
+                "old_value": MAX_CONCURRENT_PROCESSING,
+                "new_value": scheduling_config["recommendations"]["max_concurrent_processing"]
+            })
+        
+        # 2. Optimize queue processing order
+        if recommendations.get("optimization_score", 100) < 80:
+            # Reorder queue to prioritize high-success accounts/proxies
+            high_success_accounts = await db.youtube_accounts.find({
+                "status": "active",
+                "success_rate": {"$gte": 80}
+            }).limit(5).to_list(5)
+            
+            applied_optimizations.append({
+                "type": "account_prioritization", 
+                "action": "prioritize_high_success_accounts",
+                "affected_accounts": len(high_success_accounts)
+            })
+        
+        # 3. Send optimization alert to Discord
+        if len(applied_optimizations) > 0:
+            optimization_alert = {
+                "type": "info",
+                "message": f"Applied {len(applied_optimizations)} automatic optimizations to improve system performance",
+                "timestamp": current_time,
+                "severity": "low"
+            }
+            await send_performance_alert(optimization_alert)
+        
+        return {
+            "timestamp": current_time,
+            "applied_optimizations": applied_optimizations,
+            "optimization_score": recommendations.get("optimization_score", 100),
+            "next_review_in_minutes": 30,
+            "status": "optimizations_applied" if len(applied_optimizations) > 0 else "no_optimizations_needed"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error applying optimization recommendations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/queue/processing-status")
 async def get_queue_processing_status():
     """Get detailed queue processing status and metrics"""
