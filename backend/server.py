@@ -6460,10 +6460,7 @@ async def generate_error_recommendations(error_patterns: dict, account_errors: d
 
 # Channel Analysis and Email Feature
 @api_router.post("/channel/analyze-and-email")
-async def analyze_channel_and_send_email(
-    channel_handle: str = ...,
-    send_to_email: str = None
-):
+async def analyze_channel_and_send_email(request: ChannelAnalysisRequest):
     """Analyze a YouTube channel and optionally send outreach email"""
     try:
         logger.info(f"Starting channel analysis for: {channel_handle}")
