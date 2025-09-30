@@ -4266,6 +4266,91 @@ async def get_available_viewports_endpoint():
         logger.error(f"Error getting viewports: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# =============================================================================
+# PHASE 3 STEP 7: AUTHENTICATED EMAIL EXTRACTION API ENDPOINTS  
+# =============================================================================
+
+@api_router.post("/email/enhanced-extraction")
+async def enhanced_email_extraction_endpoint(channel_id: str):
+    """Enhanced email extraction with authenticated sessions and contact button detection"""
+    try:
+        logger.info(f"Starting enhanced email extraction for channel: {channel_id}")
+        
+        results = await enhanced_authenticated_email_extraction(channel_id)
+        
+        return {
+            "message": "Enhanced email extraction completed",
+            "results": results,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced email extraction endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/email/check-deliverability")
+async def check_email_deliverability_endpoint(email: str):
+    """Check email deliverability with comprehensive validation"""
+    try:
+        deliverability = await check_email_deliverability(email)
+        
+        return {
+            "message": "Email deliverability check completed",
+            "email": email,
+            "deliverability": deliverability,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking email deliverability: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/email/extract-from-videos")
+async def extract_from_video_descriptions_endpoint(channel_id: str, max_videos: int = 5):
+    """Extract emails from channel's recent video descriptions"""
+    try:
+        logger.info(f"Extracting emails from video descriptions for: {channel_id}")
+        
+        if max_videos > 10:
+            max_videos = 10  # Limit for performance
+            
+        emails = await extract_emails_from_video_descriptions(channel_id, max_videos)
+        
+        return {
+            "message": "Video description email extraction completed",
+            "channel_id": channel_id,
+            "emails_found": emails,
+            "videos_checked": max_videos,
+            "total_emails": len(emails),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error extracting from video descriptions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/email/test-contact-buttons")
+async def test_contact_button_detection_endpoint(channel_id: str):
+    """Test contact button detection on a channel's about page"""
+    try:
+        logger.info(f"Testing contact button detection for: {channel_id}")
+        
+        email, content = await scrape_channel_about_page_with_contact_buttons(channel_id)
+        
+        return {
+            "message": "Contact button detection test completed",
+            "channel_id": channel_id,
+            "email_found": email,
+            "content_preview": content[:300] if content else None,
+            "content_length": len(content) if content else 0,
+            "success": True,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing contact button detection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.post("/browser/test-stealth")
 async def test_stealth_browser_endpoint(account_id: str):
     """Test stealth browser functionality with bot detection checks"""
