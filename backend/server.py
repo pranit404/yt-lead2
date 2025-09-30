@@ -3903,6 +3903,8 @@ async def store_lead_without_email(channel_id: str, extraction_data: dict):
     
     except Exception as e:
         logger.error(f"Error storing lead without email: {e}")
+
+@api_router.post("/lead-generation/start", response_model=ProcessingStatus)
 async def start_lead_generation(request: LeadGenerationRequest, background_tasks: BackgroundTasks):
     """Start the lead generation process"""
     status = ProcessingStatus(
