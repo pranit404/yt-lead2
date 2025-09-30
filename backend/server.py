@@ -1949,8 +1949,10 @@ async def create_enhanced_stealth_session(account_id: str,
         raise
 
 async def scrape_channel_about_page(channel_id: str, use_authenticated_session: bool = True) -> tuple[Optional[str], Optional[str]]:
-    """Scrape channel about page for email and content using Playwright with authentication support"""
+    """Enhanced scrape channel about page with anti-detection browser and health monitoring"""
     try:
+        logger.info(f"Starting enhanced scraping for channel: {channel_id}")
+        
         # Handle different channel ID formats
         if channel_id.startswith('@'):
             urls_to_try = [
@@ -1966,172 +1968,215 @@ async def scrape_channel_about_page(channel_id: str, use_authenticated_session: 
                 f"https://www.youtube.com/channel/{channel_id}/about"  # fallback
             ]
         
-        # Try to get authenticated session first
         account = None
-        session_context = None
+        session_info = None
         
         if use_authenticated_session:
-            account, session_context = await get_authenticated_session()
-            if not account:
-                logger.warning("No authenticated session available, falling back to non-authenticated scraping")
+            # Get healthiest account for scraping
+            account = await get_healthiest_available_account()
+            if account:
+                try:
+                    # Create enhanced stealth session
+                    session_info = await create_enhanced_stealth_session(
+                        account.id, 
+                        use_proxy=True, 
+                        session_type="channel_scraping"
+                    )
+                    logger.info(f"Using authenticated session with account: {account.email}")
+                except Exception as session_error:
+                    logger.warning(f"Failed to create stealth session: {session_error}")
+                    account = None
         
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-first-run',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
-                ]
+        # If no authenticated session, create anonymous stealth session
+        if not session_info:
+            logger.info("Using anonymous stealth scraping")
+            # Create anonymous stealth session
+            proxy_config = await implement_residential_proxy_rotation("anonymous")
+            fingerprint = get_random_fingerprint()
+            
+            browser, context, used_fingerprint = await create_stealth_browser_context(
+                proxy_config, fingerprint
             )
             
-            # Use session context if available
-            context_options = {
-                'user_agent': session_context['user_agent'] if session_context else STEALTH_USER_AGENTS[0],
-                'viewport': {'width': 1366, 'height': 768}
+            session_info = {
+                "browser": browser,
+                "context": context,
+                "page": await context.new_page(),
+                "fingerprint": used_fingerprint,
+                "proxy_config": proxy_config,
+                "account_id": "anonymous"
             }
-            
-            context = await browser.new_context(**context_options)
-            
-            # Load cookies if we have an authenticated session
-            if session_context and session_context.get('cookies'):
-                try:
-                    cookies_list = []
-                    for cookie_data in session_context['cookies'].values():
-                        if isinstance(cookie_data, dict):
-                            cookies_list.append(cookie_data)
-                    
-                    if cookies_list:
-                        await context.add_cookies(cookies_list)
-                        logger.info(f"Loaded {len(cookies_list)} cookies for authenticated scraping")
-                except Exception as cookie_error:
-                    logger.warning(f"Failed to load cookies: {cookie_error}")
-            
-            # Add stealth script
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined,
-                });
-            """)
-            
-            page = await context.new_page()
-            
+        
+        page = session_info["page"]
+        
+        try:
             for about_url in urls_to_try:
                 try:
                     logger.info(f"Trying to scrape: {about_url}")
                     
-                    await page.goto(about_url, wait_until="networkidle", timeout=30000)
-                    await page.wait_for_timeout(5000)  # Increased wait time
+                    # Simulate human behavior before navigation
+                    await simulate_human_behavior(page, (1, 2))
                     
-                    # Try to expand "Show more" buttons to reveal full content
+                    await page.goto(about_url, wait_until="networkidle", timeout=30000)
+                    await page.wait_for_timeout(random.randint(3000, 6000))  # Random wait
+                    
+                    # Check for bot detection or access denied
+                    page_content = await page.content()
+                    if any(indicator in page_content.lower() for indicator in 
+                          ["access denied", "blocked", "captcha", "unusual traffic"]):
+                        
+                        # Handle potential bot detection
+                        if account:
+                            await log_account_usage_pattern(
+                                account.id,
+                                "bot_detection",
+                                False,
+                                {"error": "Possible bot detection on YouTube", "url": about_url}
+                            )
+                            
+                            # Try to auto-switch account
+                            new_account = await auto_switch_account(account.id, "bot_detection")
+                            if new_account:
+                                account = new_account
+                                # Would need to recreate session here in production
+                        
+                        logger.warning("Possible bot detection, continuing with current session")
+                    
+                    # Try to expand "Show more" buttons with human-like behavior
                     try:
-                        # Look for various "show more" button selectors
                         show_more_selectors = [
                             "button[aria-label*='more']",
-                            "button[aria-label*='Show more']",
-                            "button[aria-label*='Show less']",
+                            "button[aria-label*='Show more']", 
                             "tp-yt-paper-button#expand",
                             "yt-button-shape[aria-label*='more']",
-                            "#expand-button",
-                            "[aria-label*='more']"
+                            "#expand-button"
                         ]
                         
                         for selector in show_more_selectors:
                             try:
+                                # Simulate human scrolling to find the button
+                                await page.mouse.wheel(0, random.randint(100, 300))
+                                await asyncio.sleep(random.uniform(0.5, 1.5))
+                                
                                 show_more_button = await page.wait_for_selector(selector, timeout=2000)
                                 if show_more_button:
+                                    # Human-like click with slight delay and randomization
+                                    await simulate_human_behavior(page, (0.5, 1.0))
                                     await show_more_button.click()
-                                    await page.wait_for_timeout(2000)
-                                    logger.info(f"Successfully clicked show more button with selector: {selector}")
+                                    await page.wait_for_timeout(random.randint(2000, 4000))
+                                    logger.info(f"Expanded content with selector: {selector}")
                                     break
                             except:
                                 continue
-                                
                     except Exception as expand_error:
-                        logger.debug(f"Could not expand content: {expand_error}")
+                        logger.debug(f"Could not expand show more: {expand_error}")
                     
-                    # Wait a bit more after potential expansion
-                    await page.wait_for_timeout(3000)
-                    
-                    # Get page content
-                    content = await page.content()
-                    soup = BeautifulSoup(content, 'html.parser')
-                    
-                    # Target specific YouTube about page elements
-                    about_text_elements = []
-                    
-                    # Try to find description/about content in specific containers
-                    description_selectors = [
-                        "yt-formatted-string#description-text",
-                        "#description-text",
-                        "[id*='description']",
-                        "[class*='description']",
-                        "yt-formatted-string.ytd-channel-about-metadata-renderer",
-                        ".ytd-channel-about-metadata-renderer",
-                        "#about-description",
-                        "yt-formatted-string.content"
-                    ]
-                    
-                    for selector in description_selectors:
-                        elements = soup.select(selector)
-                        for element in elements:
-                            text = element.get_text().strip()
-                            if text and len(text) > 10:  # Only meaningful text
-                                about_text_elements.append(text)
-                    
-                    # Combine all found text
-                    combined_text = "\n".join(about_text_elements)
-                    
-                    # Fallback to general text extraction if specific selectors didn't work
-                    if not combined_text.strip():
-                        logger.info("Fallback to general text extraction")
-                        combined_text = soup.get_text()
-                    
-                    logger.info(f"Extracted text length: {len(combined_text)}")
-                    logger.debug(f"First 500 chars: {combined_text[:500]}")
-                    
-                    # Extract email from the text
-                    email = extract_email_from_text(combined_text)
-                    
-                    if email:
-                        logger.info(f"Found email: {email} (Authenticated: {account is not None})")
+                    # Extract page content with improved selectors
+                    try:
+                        # Multiple selector strategies for content extraction
+                        content_selectors = [
+                            "div#about-description",
+                            "yt-formatted-string#description", 
+                            "div.about-stats",
+                            "div[id*='description']",
+                            "div[class*='description']",
+                            "span[class*='description']",
+                            "#content-container",
+                            "ytd-channel-about-metadata-renderer"
+                        ]
                         
-                        # Update account usage if authenticated
+                        full_content = ""
+                        
+                        for selector in content_selectors:
+                            try:
+                                elements = await page.query_selector_all(selector)
+                                for element in elements:
+                                    element_text = await element.inner_text()
+                                    if element_text and element_text not in full_content:
+                                        full_content += f" {element_text}"
+                            except:
+                                continue
+                        
+                        # Also get general page text as fallback
+                        if not full_content.strip():
+                            full_content = await page.inner_text("body")
+                        
+                        # Clean and extract email
+                        cleaned_content = full_content.strip()
+                        logger.info(f"Extracted content length: {len(cleaned_content)} characters")
+                        
+                        if cleaned_content:
+                            email = extract_email_from_text(cleaned_content)
+                            
+                            # Log successful scraping
+                            if account:
+                                await log_account_usage_pattern(
+                                    account.id,
+                                    "channel_scraping", 
+                                    True,
+                                    {
+                                        "channel_id": channel_id,
+                                        "url": about_url, 
+                                        "content_length": len(cleaned_content),
+                                        "email_found": bool(email),
+                                        "proxy_used": bool(session_info.get("proxy_config"))
+                                    }
+                                )
+                                
+                                # Update account usage
+                                await update_account_usage(account.id, True)
+                            
+                            return email, cleaned_content
+                            
+                    except Exception as extract_error:
+                        logger.error(f"Content extraction error: {extract_error}")
                         if account:
-                            await update_account_usage(account.id, success=True)
-                        
-                        await browser.close()
-                        return email, combined_text[:1000]
-                    elif "About" in content or combined_text.strip():
-                        logger.info(f"No email found but content retrieved (Authenticated: {account is not None})")
-                        
-                        # Update account usage if authenticated
-                        if account:
-                            await update_account_usage(account.id, success=True)
-                        
-                        await browser.close()
-                        return None, combined_text[:1000]
-                        
+                            await log_account_usage_pattern(
+                                account.id,
+                                "content_extraction_error",
+                                False, 
+                                {"error": str(extract_error), "url": about_url}
+                            )
+                    
                 except Exception as url_error:
-                    logger.warning(f"Failed to scrape {about_url}: {url_error}")
+                    logger.warning(f"Error scraping {about_url}: {url_error}")
+                    if account:
+                        await log_account_usage_pattern(
+                            account.id,
+                            "scraping_error",
+                            False,
+                            {"error": str(url_error), "url": about_url}
+                        )
                     continue
             
-            # Update account usage for failed scraping if authenticated
+            # If we get here, all URLs failed
+            logger.warning(f"All scraping attempts failed for channel: {channel_id}")
             if account:
-                await update_account_usage(account.id, success=False, error_message="Failed to extract content from all URLs")
+                await update_account_usage(account.id, False, "All URLs failed")
             
-            await browser.close()
+            return None, None
             
-    except Exception as e:
-        error_msg = f"Error scraping about page for channel {channel_id}: {e}"
-        logger.error(error_msg)
-        
-        # Update account usage for critical errors if authenticated
-        if account:
-            await update_account_usage(account.id, success=False, error_message=error_msg)
+        finally:
+            # Always clean up browser resources
+            try:
+                await session_info["browser"].close()
+            except:
+                pass
     
-    return None, None
+    except Exception as e:
+        logger.error(f"Critical error in enhanced scraping for {channel_id}: {e}")
+        
+        # Log critical error
+        if account:
+            await log_account_usage_pattern(
+                account.id,
+                "critical_scraping_error", 
+                False,
+                {"error": str(e), "channel_id": channel_id}
+            )
+            await update_account_usage(account.id, False, f"Critical error: {str(e)}")
+        
+        return None, None
 
 async def get_channel_details(channel_id: str):
     """Get detailed channel information"""
