@@ -292,6 +292,10 @@ class QueueBatchRequest(BaseModel):
     priority: int = 5
     payload: Optional[Dict[str, Any]] = {}
 
+class ChannelAnalysisRequest(BaseModel):
+    channel_handle: str
+    send_to_email: Optional[str] = None
+
 # Utility Functions
 async def send_discord_notification(message: str):
     """Send notification to Discord webhook"""
