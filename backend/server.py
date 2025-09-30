@@ -424,6 +424,365 @@ async def reset_daily_limits():
     except Exception as e:
         logger.error(f"Error resetting daily limits: {e}")
 
+# =============================================================================
+# STEP 5: ACCOUNT HEALTH MONITORING SYSTEM
+# =============================================================================
+
+# Account Health Status Constants
+ACCOUNT_STATUS_ACTIVE = "active"
+ACCOUNT_STATUS_BANNED = "banned"
+ACCOUNT_STATUS_RATE_LIMITED = "rate_limited"
+ACCOUNT_STATUS_NEEDS_VERIFICATION = "needs_verification"
+ACCOUNT_STATUS_MAINTENANCE = "maintenance"
+ACCOUNT_STATUS_COOLDOWN = "cooldown"
+
+# Health Check Thresholds
+HEALTH_CHECK_INTERVAL_MINUTES = 30
+SUCCESS_RATE_THRESHOLD = 70.0  # Below this is considered unhealthy
+MAX_CONSECUTIVE_FAILURES = 3
+VERIFICATION_NEEDED_KEYWORDS = ["verify", "suspicious", "unusual activity", "phone number", "security"]
+
+async def check_account_health(account_id: str) -> dict:
+    """
+    Perform comprehensive health check on a YouTube account
+    Returns health status with detailed metrics
+    """
+    try:
+        account_doc = await db.youtube_accounts.find_one({"id": account_id})
+        if not account_doc:
+            return {"healthy": False, "reason": "Account not found"}
+        
+        account = YouTubeAccount(**account_doc)
+        now = datetime.now(timezone.utc)
+        
+        health_report = {
+            "account_id": account_id,
+            "email": account.email,
+            "healthy": True,
+            "status": account.status,
+            "issues": [],
+            "recommendations": [],
+            "metrics": {},
+            "last_check": now
+        }
+        
+        # Check 1: Account Status
+        if account.status in [ACCOUNT_STATUS_BANNED, ACCOUNT_STATUS_NEEDS_VERIFICATION]:
+            health_report["healthy"] = False
+            health_report["issues"].append(f"Account status is {account.status}")
+        
+        # Check 2: Success Rate
+        if account.success_rate < SUCCESS_RATE_THRESHOLD:
+            health_report["healthy"] = False
+            health_report["issues"].append(f"Low success rate: {account.success_rate}%")
+            health_report["recommendations"].append("Consider rotating this account less frequently")
+        
+        # Check 3: Rate Limiting Status
+        if account.rate_limit_reset and account.rate_limit_reset > now:
+            health_report["issues"].append("Account is currently rate limited")
+            health_report["recommendations"].append(f"Wait until {account.rate_limit_reset} before using")
+        
+        # Check 4: Daily Request Limits
+        daily_usage_percentage = (account.daily_requests_count / MAX_DAILY_REQUESTS_PER_ACCOUNT) * 100
+        if daily_usage_percentage > 80:
+            health_report["issues"].append(f"High daily usage: {daily_usage_percentage:.1f}%")
+            health_report["recommendations"].append("Consider account rotation")
+        
+        # Check 5: Session Validity
+        session_valid = False
+        if account.session_data and account.cookies:
+            session_valid = await validate_session(account)
+            if not session_valid:
+                health_report["issues"].append("Invalid or expired session")
+                health_report["recommendations"].append("Re-authenticate account")
+        
+        # Check 6: Last Error Analysis
+        if account.last_error:
+            error_lower = account.last_error.lower()
+            if any(keyword in error_lower for keyword in VERIFICATION_NEEDED_KEYWORDS):
+                health_report["healthy"] = False
+                health_report["issues"].append("Account may need verification")
+                await db.youtube_accounts.update_one(
+                    {"id": account_id},
+                    {"$set": {"status": ACCOUNT_STATUS_NEEDS_VERIFICATION}}
+                )
+        
+        # Populate metrics
+        health_report["metrics"] = {
+            "success_rate": account.success_rate,
+            "daily_requests": account.daily_requests_count,
+            "daily_limit": MAX_DAILY_REQUESTS_PER_ACCOUNT,
+            "total_requests": account.total_requests_count,
+            "session_valid": session_valid,
+            "last_used": account.last_used.isoformat() if account.last_used else None,
+            "account_age_days": (now - account.created_at).days if account.created_at else None
+        }
+        
+        # Update health check timestamp
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "last_health_check": now,
+                    "health_report": health_report
+                }
+            }
+        )
+        
+        return health_report
+        
+    except Exception as e:
+        logger.error(f"Error checking account health for {account_id}: {e}")
+        return {"healthy": False, "reason": f"Health check failed: {str(e)}"}
+
+async def monitor_all_accounts() -> dict:
+    """
+    Monitor health of all accounts and return summary
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Get all accounts
+        accounts_cursor = db.youtube_accounts.find({})
+        accounts = await accounts_cursor.to_list(None)
+        
+        monitoring_summary = {
+            "total_accounts": len(accounts),
+            "healthy_accounts": 0,
+            "unhealthy_accounts": 0,
+            "banned_accounts": 0,
+            "rate_limited_accounts": 0,
+            "needs_verification": 0,
+            "accounts_needing_attention": [],
+            "overall_health_score": 0.0,
+            "recommendations": [],
+            "timestamp": now
+        }
+        
+        healthy_count = 0
+        
+        for account_doc in accounts:
+            account = YouTubeAccount(**account_doc)
+            
+            # Perform health check
+            health_report = await check_account_health(account.id)
+            
+            if health_report["healthy"]:
+                healthy_count += 1
+                monitoring_summary["healthy_accounts"] += 1
+            else:
+                monitoring_summary["unhealthy_accounts"] += 1
+                monitoring_summary["accounts_needing_attention"].append({
+                    "account_id": account.id,
+                    "email": account.email,
+                    "issues": health_report["issues"],
+                    "recommendations": health_report["recommendations"]
+                })
+            
+            # Count status types
+            if account.status == ACCOUNT_STATUS_BANNED:
+                monitoring_summary["banned_accounts"] += 1
+            elif account.status == ACCOUNT_STATUS_RATE_LIMITED:
+                monitoring_summary["rate_limited_accounts"] += 1
+            elif account.status == ACCOUNT_STATUS_NEEDS_VERIFICATION:
+                monitoring_summary["needs_verification"] += 1
+        
+        # Calculate overall health score
+        if len(accounts) > 0:
+            monitoring_summary["overall_health_score"] = (healthy_count / len(accounts)) * 100
+        
+        # Generate system-level recommendations
+        if monitoring_summary["banned_accounts"] > len(accounts) * 0.2:  # More than 20% banned
+            monitoring_summary["recommendations"].append("High ban rate detected - review automation patterns")
+        
+        if monitoring_summary["needs_verification"] > 0:
+            monitoring_summary["recommendations"].append("Some accounts need manual verification")
+        
+        if monitoring_summary["overall_health_score"] < 60:
+            monitoring_summary["recommendations"].append("System health below 60% - consider adding new accounts")
+        
+        # Send Discord notification if health is critical
+        if monitoring_summary["overall_health_score"] < 30:
+            await send_discord_notification(
+                f"🚨 **CRITICAL ACCOUNT HEALTH ALERT**\n"
+                f"📊 Overall Health: {monitoring_summary['overall_health_score']:.1f}%\n"
+                f"🚫 Banned: {monitoring_summary['banned_accounts']}\n"
+                f"⚠️ Unhealthy: {monitoring_summary['unhealthy_accounts']}\n"
+                f"💡 Immediate attention required!"
+            )
+        
+        return monitoring_summary
+        
+    except Exception as e:
+        logger.error(f"Error monitoring all accounts: {e}")
+        return {"error": str(e)}
+
+async def auto_switch_account(current_account_id: str, reason: str = "automatic_rotation") -> Optional[YouTubeAccount]:
+    """
+    Automatically switch to a healthier account when current one is problematic
+    """
+    try:
+        logger.info(f"Auto-switching from account {current_account_id}, reason: {reason}")
+        
+        # Mark current account for cooldown if it's problematic
+        if reason in ["rate_limited", "banned", "verification_needed"]:
+            cooldown_until = datetime.now(timezone.utc) + timedelta(
+                minutes=ACCOUNT_COOLDOWN_MINUTES * 2
+            )  # Double cooldown for problematic accounts
+            
+            await db.youtube_accounts.update_one(
+                {"id": current_account_id},
+                {
+                    "$set": {
+                        "status": ACCOUNT_STATUS_COOLDOWN,
+                        "rate_limit_reset": cooldown_until,
+                        "last_error": f"Auto-switched due to: {reason}",
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+        
+        # Find the healthiest available account
+        next_account = await get_healthiest_available_account()
+        
+        if next_account:
+            await send_discord_notification(
+                f"🔄 **Account Auto-Switch**\n"
+                f"📤 From: {current_account_id[:8]}...\n"
+                f"📥 To: {next_account.email}\n"
+                f"💬 Reason: {reason}"
+            )
+            
+            return next_account
+        else:
+            await send_discord_notification(
+                f"⚠️ **No Healthy Accounts Available**\n"
+                f"📤 Tried to switch from: {current_account_id[:8]}...\n"
+                f"💬 Reason: {reason}\n"
+                f"🚨 Manual intervention required!"
+            )
+            
+            return None
+        
+    except Exception as e:
+        logger.error(f"Error auto-switching account: {e}")
+        return None
+
+async def get_healthiest_available_account() -> Optional[YouTubeAccount]:
+    """
+    Get the account with the best health metrics that's available for use
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Find accounts that are available (not in cooldown, not banned, etc.)
+        accounts_cursor = db.youtube_accounts.find({
+            "status": {"$in": [ACCOUNT_STATUS_ACTIVE]},
+            "$or": [
+                {"rate_limit_reset": {"$lt": now}},
+                {"rate_limit_reset": None}
+            ],
+            "daily_requests_count": {"$lt": MAX_DAILY_REQUESTS_PER_ACCOUNT}
+        }).sort([
+            ("success_rate", -1),  # Highest success rate first
+            ("daily_requests_count", 1),  # Lowest usage first
+            ("last_used", 1)  # Least recently used first
+        ])
+        
+        accounts = await accounts_cursor.to_list(None)
+        
+        # Score accounts based on health metrics
+        best_account = None
+        best_score = -1
+        
+        for account_doc in accounts:
+            account = YouTubeAccount(**account_doc)
+            
+            # Calculate health score (0-100)
+            score = 0
+            
+            # Success rate component (0-40 points)
+            score += min(account.success_rate * 0.4, 40)
+            
+            # Usage component (0-30 points) - lower usage is better
+            usage_ratio = account.daily_requests_count / MAX_DAILY_REQUESTS_PER_ACCOUNT
+            score += max(30 - (usage_ratio * 30), 0)
+            
+            # Freshness component (0-20 points) - less recently used is better
+            if account.last_used:
+                hours_since_use = (now - account.last_used).total_seconds() / 3600
+                score += min(hours_since_use * 2, 20)  # 2 points per hour, max 20
+            else:
+                score += 20  # Never used gets full points
+            
+            # Session validity component (0-10 points)
+            if account.session_data and account.cookies:
+                session_valid = await validate_session(account)
+                if session_valid:
+                    score += 10
+            
+            if score > best_score:
+                best_score = score
+                best_account = account
+        
+        if best_account:
+            logger.info(f"Selected healthiest account: {best_account.email} (score: {best_score:.2f})")
+        
+        return best_account
+        
+    except Exception as e:
+        logger.error(f"Error getting healthiest account: {e}")
+        return None
+
+async def apply_account_cooldown(account_id: str, cooldown_minutes: int = None):
+    """
+    Apply cooldown period to an account to prevent overuse
+    """
+    try:
+        cooldown_minutes = cooldown_minutes or ACCOUNT_COOLDOWN_MINUTES
+        cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=cooldown_minutes)
+        
+        await db.youtube_accounts.update_one(
+            {"id": account_id},
+            {
+                "$set": {
+                    "status": ACCOUNT_STATUS_COOLDOWN,
+                    "rate_limit_reset": cooldown_until,
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        logger.info(f"Applied {cooldown_minutes}min cooldown to account {account_id}")
+        
+    except Exception as e:
+        logger.error(f"Error applying cooldown to account {account_id}: {e}")
+
+async def log_account_usage_pattern(account_id: str, action_type: str, success: bool, details: dict = None):
+    """
+    Log detailed account usage patterns for analysis
+    """
+    try:
+        usage_log = {
+            "account_id": account_id,
+            "action_type": action_type,  # login, scraping, email_extraction, etc.
+            "success": success,
+            "details": details or {},
+            "timestamp": datetime.now(timezone.utc),
+            "ip_address": details.get("ip_address") if details else None,
+            "user_agent": details.get("user_agent") if details else None
+        }
+        
+        # Store in usage_logs collection
+        await db.account_usage_logs.insert_one(usage_log)
+        
+        # Update account statistics
+        await update_account_usage(account_id, success, 
+                                 details.get("error_message") if details else None)
+        
+    except Exception as e:
+        logger.error(f"Error logging usage pattern for {account_id}: {e}")
+
 # YouTube Login Automation Functions
 async def validate_session(account: YouTubeAccount) -> bool:
     """Check if existing session is still valid"""
