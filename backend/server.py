@@ -6454,6 +6454,232 @@ async def generate_error_recommendations(error_patterns: dict, account_errors: d
     
     return recommendations
 
+# Channel Analysis and Email Feature
+@api_router.post("/channel/analyze-and-email")
+async def analyze_channel_and_send_email(
+    channel_handle: str = ...,
+    send_to_email: str = None
+):
+    """Analyze a YouTube channel and optionally send outreach email"""
+    try:
+        logger.info(f"Starting channel analysis for: {channel_handle}")
+        
+        # Initialize analysis results
+        analysis_results = {
+            "channel_handle": channel_handle,
+            "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+            "success": False
+        }
+        
+        # Step 1: Clean up and validate channel handle
+        channel_id = channel_handle.strip()
+        if channel_id.startswith('@'):
+            channel_id = channel_id[1:]
+        elif channel_id.startswith('https://'):
+            # Extract channel ID from URL
+            if '/channel/' in channel_id:
+                channel_id = channel_id.split('/channel/')[1].split('/')[0]
+            elif '/@' in channel_id:
+                channel_id = channel_id.split('/@')[1].split('/')[0]
+        
+        analysis_results["processed_channel_id"] = channel_id
+        
+        # Step 2: Get channel information and email
+        logger.info(f"Extracting email from channel: {channel_id}")
+        email_found, channel_content = await scrape_channel_about_page(channel_id)
+        
+        if not channel_content:
+            return {
+                **analysis_results,
+                "error": "Could not access channel information. Channel may be private or handle is incorrect.",
+                "suggestions": [
+                    "Verify the channel handle is correct",
+                    "Check if channel exists and is public", 
+                    "Try using the full channel URL or @username format"
+                ]
+            }
+        
+        # Step 3: Get channel details from YouTube API
+        youtube = get_youtube_service()
+        
+        # Try different methods to get channel info
+        channel_info = None
+        try:
+            # Try by username first
+            request = youtube.channels().list(part="snippet,statistics", forUsername=channel_id)
+            response = request.execute()
+            if response.get('items'):
+                channel_info = response['items'][0]
+            else:
+                # Try by channel ID
+                request = youtube.channels().list(part="snippet,statistics", id=channel_id)
+                response = request.execute()
+                if response.get('items'):
+                    channel_info = response['items'][0]
+        except Exception as e:
+            logger.warning(f"Could not get channel info from API: {e}")
+        
+        if not channel_info:
+            # Create basic channel info from scraped content
+            channel_info = {
+                'snippet': {
+                    'title': channel_id,
+                    'description': channel_content[:500] if channel_content else ""
+                },
+                'statistics': {
+                    'subscriberCount': '0',
+                    'videoCount': '0',
+                    'viewCount': '0'
+                }
+            }
+        
+        # Step 4: Get latest videos and analyze
+        logger.info("Getting latest videos for analysis")
+        try:
+            # Get recent videos
+            search_request = youtube.search().list(
+                part="snippet",
+                channelId=channel_info.get('id', ''),
+                maxResults=5,
+                order="date",
+                type="video"
+            )
+            videos_response = search_request.execute()
+            videos = videos_response.get('items', [])
+        except Exception as e:
+            logger.warning(f"Could not get videos: {e}")
+            videos = []
+        
+        latest_video = None
+        comments_analysis = {}
+        
+        if videos:
+            latest_video = videos[0]
+            # Get comments for the latest video
+            try:
+                comments = await get_video_comments(latest_video['id']['videoId'], max_results=20)
+                if comments:
+                    comments_analysis = analyze_comments_for_editing(comments)
+            except Exception as e:
+                logger.warning(f"Could not analyze comments: {e}")
+        
+        # Step 5: Prepare channel data for analysis
+        channel_data = {
+            "creator_name": channel_info['snippet'].get('title', channel_id),
+            "channel_title": channel_info['snippet'].get('title', channel_id),
+            "channel_id": channel_id,
+            "description": channel_info['snippet'].get('description', ''),
+            "subscriber_count": int(channel_info['statistics'].get('subscriberCount', 0)),
+            "video_count": int(channel_info['statistics'].get('videoCount', 0)),
+            "view_count": int(channel_info['statistics'].get('viewCount', 0)),
+            "email_found": email_found,
+            "scraped_content_length": len(channel_content) if channel_content else 0
+        }
+        
+        video_data = {}
+        if latest_video:
+            video_data = {
+                "title": latest_video['snippet'].get('title', ''),
+                "videoId": latest_video['id']['videoId'],
+                "publishedAt": latest_video['snippet'].get('publishedAt', ''),
+                "description": latest_video['snippet'].get('description', '')[:200]
+            }
+        
+        comment_data = {}
+        if comments_analysis.get('top_comment'):
+            comment_data = comments_analysis['top_comment']
+        
+        # Step 6: Detect niche
+        detected_niche = detect_channel_niche(channel_data, video_data)
+        
+        # Step 7: Generate outreach email
+        logger.info("Generating outreach email using new template")
+        email_content = await generate_client_outreach_email(channel_data, video_data, comment_data)
+        
+        # Step 8: Prepare comprehensive analysis results
+        analysis_results.update({
+            "success": True,
+            "channel_analysis": {
+                "basic_info": {
+                    "creator_name": channel_data["creator_name"],
+                    "subscriber_count": channel_data["subscriber_count"],
+                    "video_count": channel_data["video_count"],
+                    "total_views": channel_data["view_count"]
+                },
+                "niche_detected": detected_niche,
+                "email_extraction": {
+                    "email_found": email_found,
+                    "content_analyzed": bool(channel_content)
+                },
+                "latest_video": video_data if video_data else None,
+                "comment_analysis": {
+                    "editing_score": comments_analysis.get('editing_score', 5.0),
+                    "relevant_comments_found": comments_analysis.get('relevant_comments', 0),
+                    "top_comment_analyzed": bool(comment_data)
+                } if comments_analysis else None
+            },
+            "generated_email": email_content,
+            "email_sending": {
+                "email_provided": bool(send_to_email),
+                "emails_enabled_globally": SEND_EMAILS_ENABLED
+            }
+        })
+        
+        # Step 9: Send email if requested and enabled
+        if send_to_email and SEND_EMAILS_ENABLED:
+            logger.info(f"Sending outreach email to: {send_to_email}")
+            try:
+                await send_email(
+                    to_email=send_to_email,
+                    subject=email_content['subject'],
+                    html_body=email_content['html'],
+                    plain_body=email_content['plain']
+                )
+                
+                analysis_results["email_sending"].update({
+                    "sent_successfully": True,
+                    "sent_to": send_to_email,
+                    "sent_at": datetime.now(timezone.utc).isoformat()
+                })
+                
+                # Send Discord notification
+                await send_discord_notification(
+                    f"📧 **Outreach Email Sent!**\n"
+                    f"🎯 Channel: {channel_data['creator_name']}\n"
+                    f"📧 To: {send_to_email}\n"
+                    f"🎨 Niche: {detected_niche}\n"
+                    f"👥 Subscribers: {channel_data['subscriber_count']:,}"
+                )
+                
+            except Exception as e:
+                logger.error(f"Error sending email: {e}")
+                analysis_results["email_sending"].update({
+                    "sent_successfully": False,
+                    "error": str(e)
+                })
+        
+        elif send_to_email and not SEND_EMAILS_ENABLED:
+            analysis_results["email_sending"].update({
+                "sent_successfully": False,
+                "error": "Email sending is globally disabled. Enable SEND_EMAILS_ENABLED in environment."
+            })
+        
+        logger.info(f"Channel analysis completed successfully for: {channel_handle}")
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"Error in channel analysis: {e}")
+        return {
+            **analysis_results,
+            "success": False,
+            "error": str(e),
+            "suggestions": [
+                "Check if the channel handle is correct",
+                "Verify the channel is public and accessible",
+                "Try using different formats: @username, channel_id, or full URL"
+            ]
+        }
+
 # Include the router in the main app
 app.include_router(api_router)
 
