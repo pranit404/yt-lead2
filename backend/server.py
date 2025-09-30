@@ -4358,6 +4358,416 @@ async def test_stealth_browser_endpoint(account_id: str):
         logger.info(f"Testing stealth browser for account {account_id}")
         
         # Create stealth session
+        session_info = await create_enhanced_stealth_session(account_id, True, "stealth_test")
+        
+        page = session_info["page"]
+        
+        # Test stealth browsing on various sites
+        test_results = {
+            "account_id": account_id,
+            "tests_passed": 0,
+            "tests_failed": 0,
+            "details": []
+        }
+        
+        test_urls = [
+            "https://www.whatismybrowser.com/",
+            "https://www.youtube.com/",
+            "https://httpbin.org/user-agent"
+        ]
+        
+        for test_url in test_urls:
+            try:
+                await page.goto(test_url, wait_until="networkidle", timeout=15000)
+                await page.wait_for_timeout(2000)
+                
+                # Basic bot detection checks
+                page_content = await page.content()
+                bot_indicators = ["webdriver", "automation", "selenium", "playwright"]
+                
+                detected_indicators = [indicator for indicator in bot_indicators if indicator.lower() in page_content.lower()]
+                
+                test_result = {
+                    "url": test_url,
+                    "success": len(detected_indicators) == 0,
+                    "detected_indicators": detected_indicators,
+                    "user_agent": session_info["fingerprint"]["user_agent"][:50] + "..."
+                }
+                
+                test_results["details"].append(test_result)
+                
+                if test_result["success"]:
+                    test_results["tests_passed"] += 1
+                else:
+                    test_results["tests_failed"] += 1
+                    
+            except Exception as test_error:
+                test_results["details"].append({
+                    "url": test_url,
+                    "success": False,
+                    "error": str(test_error)
+                })
+                test_results["tests_failed"] += 1
+        
+        # Clean up
+        await session_info["browser"].close()
+        
+        test_results["success_rate"] = (test_results["tests_passed"] / len(test_urls)) * 100
+        
+        return {
+            "message": "Stealth browser test completed",
+            "results": test_results,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing stealth browser: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# PHASE 3 STEP 8: ADVANCED EMAIL DETECTION STRATEGIES
+# =============================================================================
+
+async def extract_social_media_links(page_content: str) -> list:
+    """
+    Extract social media links and website URLs from content
+    Returns list of social media profiles and websites
+    """
+    try:
+        social_patterns = {
+            "instagram": r"(?:https?://)?(?:www\.)?instagram\.com/([A-Za-z0-9_\.]+)",
+            "twitter": r"(?:https?://)?(?:www\.)?(?:twitter|x)\.com/([A-Za-z0-9_]+)",
+            "tiktok": r"(?:https?://)?(?:www\.)?tiktok\.com/@?([A-Za-z0-9_\.]+)",
+            "linkedin": r"(?:https?://)?(?:www\.)?linkedin\.com/(?:in|company)/([A-Za-z0-9_\-]+)",
+            "facebook": r"(?:https?://)?(?:www\.)?facebook\.com/([A-Za-z0-9_\.]+)",
+            "youtube": r"(?:https?://)?(?:www\.)?youtube\.com/(?:c/|channel/|@)([A-Za-z0-9_\-]+)",
+            "twitch": r"(?:https?://)?(?:www\.)?twitch\.tv/([A-Za-z0-9_]+)",
+            "discord": r"(?:https?://)?(?:www\.)?discord\.gg/([A-Za-z0-9]+)",
+            "website": r"(?:https?://)?([\w\-]+\.[\w\-]+\.?[\w]*\.?[\w]*)"
+        }
+        
+        found_links = []
+        
+        for platform, pattern in social_patterns.items():
+            matches = re.findall(pattern, page_content, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0]
+                
+                # Clean and validate
+                if match and len(match) > 2:
+                    # Skip common false positives
+                    false_positives = ["www", "com", "org", "net", "example", "localhost"]
+                    if not any(fp in match.lower() for fp in false_positives):
+                        found_links.append({
+                            "platform": platform,
+                            "username_or_domain": match,
+                            "full_url": f"https://{platform}.com/{match}" if platform != "website" else f"https://{match}"
+                        })
+        
+        return found_links
+        
+    except Exception as e:
+        logger.error(f"Error extracting social media links: {e}")
+        return []
+
+async def extract_emails_from_channel_comments(channel_id: str, max_videos: int = 3) -> list:
+    """
+    Extract emails from channel owner's replies in comments
+    """
+    try:
+        logger.info(f"Extracting emails from channel owner comments: {channel_id}")
+        
+        # Get healthiest account for comment scraping
+        account = await get_healthiest_available_account()
+        if not account:
+            logger.warning("No healthy account available for comment extraction")
+            return []
+        
+        session_info = await create_enhanced_stealth_session(
+            account.id, 
+            use_proxy=True, 
+            session_type="comment_scraping"
+        )
+        
+        page = session_info["page"]
+        found_emails = []
+        
+        # Get channel's recent videos
+        videos = await get_channel_videos(channel_id, max_videos)
+        
+        if not videos:
+            logger.warning(f"No videos found for channel: {channel_id}")
+            return []
+        
+        for video in videos[:max_videos]:
+            try:
+                video_id = video.get('video_id')
+                if not video_id:
+                    continue
+                    
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+                logger.info(f"Scraping comments from: {video_url}")
+                
+                await simulate_human_behavior(page, (1, 3))
+                await page.goto(video_url, wait_until="networkidle", timeout=30000)
+                await page.wait_for_timeout(random.randint(3000, 5000))
+                
+                # Scroll to comments section
+                try:
+                    await page.mouse.wheel(0, 1000)
+                    await page.wait_for_timeout(random.randint(2000, 4000))
+                    
+                    # Wait for comments to load
+                    await page.wait_for_selector("ytd-comments-header-renderer", timeout=10000)
+                    
+                    # Scroll to load more comments
+                    for _ in range(3):  # Limited scrolling for performance
+                        await page.mouse.wheel(0, 800)
+                        await page.wait_for_timeout(random.randint(1500, 3000))
+                    
+                except Exception as scroll_error:
+                    logger.debug(f"Could not scroll to comments: {scroll_error}")
+                
+                # Extract channel owner's comment replies
+                try:
+                    # Look for channel owner replies (they have a special badge)
+                    owner_comment_selectors = [
+                        "ytd-comment-thread-renderer [author-is-channel-owner] #content-text",
+                        "ytd-comment-thread-renderer .creator-heart-button ~ #content-text",
+                        "ytd-comment-thread-renderer [class*='owner'] #content-text",
+                        "ytd-comment-thread-renderer [class*='creator'] #content-text"
+                    ]
+                    
+                    comment_texts = []
+                    
+                    for selector in owner_comment_selectors:
+                        try:
+                            elements = await page.query_selector_all(selector)
+                            for element in elements[:10]:  # Limit to first 10 owner comments
+                                comment_text = await element.inner_text()
+                                if comment_text and comment_text not in comment_texts:
+                                    comment_texts.append(comment_text)
+                        except:
+                            continue
+                    
+                    # Extract emails from owner comments
+                    for comment_text in comment_texts:
+                        email = extract_email_from_text(comment_text)
+                        if email:
+                            # Check email deliverability
+                            deliverability = await check_email_deliverability(email)
+                            
+                            email_data = {
+                                "email": email,
+                                "source": "channel_owner_comment",
+                                "source_url": video_url,
+                                "video_title": video.get('title', ''),
+                                "context": comment_text[:200],
+                                "deliverability": deliverability,
+                                "confidence": deliverability.get("confidence", 0) * 0.6  # 60% confidence for comments
+                            }
+                            
+                            found_emails.append(email_data)
+                            logger.info(f"Found email in channel owner comment: {email}")
+                    
+                except Exception as comment_error:
+                    logger.debug(f"Error extracting owner comments: {comment_error}")
+                
+                # Log usage
+                await log_account_usage_pattern(
+                    account.id,
+                    "comment_scraping",
+                    True,
+                    {
+                        "video_id": video_id,
+                        "channel_id": channel_id,
+                        "comments_checked": len(comment_texts) if 'comment_texts' in locals() else 0,
+                        "email_found": len([e for e in found_emails if e["source_url"] == video_url]) > 0
+                    }
+                )
+                
+            except Exception as video_error:
+                logger.error(f"Error scraping comments from video {video.get('video_id', 'unknown')}: {video_error}")
+                continue
+        
+        # Clean up
+        await session_info["browser"].close()
+        
+        # Remove duplicates
+        unique_emails = []
+        seen_emails = set()
+        
+        for email_data in found_emails:
+            email = email_data["email"]
+            if email not in seen_emails:
+                seen_emails.add(email)
+                unique_emails.append(email_data)
+        
+        logger.info(f"Extracted {len(unique_emails)} unique emails from channel owner comments")
+        return unique_emails
+        
+    except Exception as e:
+        logger.error(f"Error extracting emails from channel comments: {e}")
+        return []
+
+def calculate_email_confidence_score(email_data: dict) -> float:
+    """
+    Calculate confidence score based on source reliability and other factors
+    """
+    try:
+        base_confidence = 0
+        source = email_data.get("source", "unknown")
+        deliverability = email_data.get("deliverability", {})
+        context = email_data.get("context", "")
+        
+        # Base confidence by source reliability
+        source_confidence = {
+            "about_page_authenticated": 100,
+            "about_page": 80,
+            "video_description": 70,
+            "channel_owner_comment": 60,
+            "social_media_follow": 50,
+            "community_post": 65,
+            "unknown": 30
+        }
+        
+        base_confidence = source_confidence.get(source, 30)
+        
+        # Deliverability factor
+        deliverability_score = deliverability.get("confidence", 0)
+        deliverability_factor = deliverability_score / 100.0
+        
+        # Context relevance factor
+        business_keywords = ["business", "contact", "inquiry", "collaboration", "work", "email", "reach out"]
+        context_factor = 1.0
+        
+        if context:
+            context_lower = context.lower()
+            business_matches = sum(1 for keyword in business_keywords if keyword in context_lower)
+            if business_matches > 0:
+                context_factor = min(1.2, 1.0 + (business_matches * 0.1))  # Max 20% boost
+        
+        # Email format quality factor
+        email = email_data.get("email", "")
+        format_factor = 1.0
+        
+        if email:
+            # Professional email indicators
+            professional_domains = ["gmail.com", "outlook.com", "yahoo.com", "hotmail.com"]
+            custom_domain = not any(domain in email for domain in professional_domains)
+            
+            if custom_domain:
+                format_factor = 1.1  # 10% boost for custom domain
+            
+            # Check for professional naming patterns
+            local_part = email.split("@")[0] if "@" in email else ""
+            if any(keyword in local_part.lower() for keyword in ["business", "contact", "info", "hello", "support"]):
+                format_factor = max(format_factor, 1.15)  # 15% boost for business naming
+        
+        # Calculate final confidence
+        final_confidence = base_confidence * deliverability_factor * context_factor * format_factor
+        
+        # Ensure it doesn't exceed 100
+        return min(100.0, final_confidence)
+        
+    except Exception as e:
+        logger.error(f"Error calculating confidence score: {e}")
+        return 0.0
+
+async def comprehensive_email_detection(channel_id: str) -> dict:
+    """
+    Comprehensive email detection using all available strategies
+    """
+    try:
+        logger.info(f"Starting comprehensive email detection for: {channel_id}")
+        
+        results = {
+            "channel_id": channel_id,
+            "emails_found": [],
+            "social_media_links": [],
+            "sources_checked": [],
+            "total_confidence": 0,
+            "best_email": None,
+            "detection_summary": {}
+        }
+        
+        # Step 1: Enhanced authenticated extraction (from Step 7)
+        step7_results = await enhanced_authenticated_email_extraction(channel_id)
+        results["emails_found"].extend(step7_results.get("emails_found", []))
+        results["sources_checked"].extend(step7_results.get("sources_checked", []))
+        
+        # Step 2: Channel owner comment replies
+        comment_emails = await extract_emails_from_channel_comments(channel_id, max_videos=3)
+        results["emails_found"].extend(comment_emails)
+        if comment_emails:
+            results["sources_checked"].append("channel_owner_comments")
+        
+        # Step 3: Extract social media links from all gathered content
+        all_content = ""
+        for email_data in results["emails_found"]:
+            context = email_data.get("context", "")
+            if context:
+                all_content += f" {context}"
+        
+        if all_content:
+            social_links = await extract_social_media_links(all_content)
+            results["social_media_links"] = social_links
+            
+            # TODO: In future, follow social media links to extract additional emails
+            # This would require additional API integrations for each platform
+        
+        # Step 4: Recalculate confidence scores for all emails
+        for email_data in results["emails_found"]:
+            email_data["confidence"] = calculate_email_confidence_score(email_data)
+        
+        # Step 5: Remove duplicates and sort by confidence
+        unique_emails = []
+        seen_emails = set()
+        
+        for email_data in results["emails_found"]:
+            email = email_data["email"]
+            if email not in seen_emails:
+                seen_emails.add(email)
+                unique_emails.append(email_data)
+        
+        results["emails_found"] = sorted(unique_emails, key=lambda x: x["confidence"], reverse=True)
+        
+        # Step 6: Set best email and calculate overall metrics
+        if results["emails_found"]:
+            results["best_email"] = results["emails_found"][0]
+            results["total_confidence"] = results["best_email"]["confidence"]
+        
+        # Step 7: Create comprehensive summary
+        results["detection_summary"] = {
+            "total_emails_found": len(results["emails_found"]),
+            "unique_emails": len(set([e["email"] for e in results["emails_found"]])),
+            "sources_checked": len(results["sources_checked"]),
+            "social_media_links": len(results["social_media_links"]),
+            "highest_confidence": results["total_confidence"],
+            "deliverable_emails": len([e for e in results["emails_found"] if e["deliverability"]["valid"]]),
+            "confidence_breakdown": {
+                "high_confidence_80_plus": len([e for e in results["emails_found"] if e["confidence"] >= 80]),
+                "medium_confidence_50_79": len([e for e in results["emails_found"] if 50 <= e["confidence"] < 80]),
+                "low_confidence_below_50": len([e for e in results["emails_found"] if e["confidence"] < 50])
+            }
+        }
+        
+        logger.info(f"Comprehensive detection complete: {results['detection_summary']}")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error in comprehensive email detection: {e}")
+        return {
+            "channel_id": channel_id,
+            "emails_found": [],
+            "social_media_links": [],
+            "sources_checked": [],
+            "total_confidence": 0,
+            "best_email": None,
+            "detection_summary": {"error": str(e)},
+            "error": str(e)
+        }
         session_info = await create_enhanced_stealth_session(account_id, use_proxy=True, session_type="stealth_test")
         
         page = session_info["page"]
