@@ -2964,130 +2964,115 @@ def detect_channel_niche(channel_data: Dict, video_data: Dict = None) -> str:
     return "content creation"
 
 async def generate_client_outreach_email(channel_data: Dict, video_data: Dict, comment_data: Dict) -> Dict:
-    """Generate personalized client outreach email using Gemini"""
+    """Generate personalized client outreach email using the exact template"""
     try:
-        ai_input = {
+        # Detect niche from channel data
+        niche = detect_channel_niche(channel_data, video_data)
+        
+        # Prepare variables for template substitution
+        template_vars = {
             "creatorName": channel_data.get('creator_name', channel_data.get('channel_title', '')),
-            "channelName": channel_data.get('channel_title', ''),
-            "channelUrl": f"https://youtube.com/channel/{channel_data.get('channel_id', '')}",
-            "niche": "content creation",
-            "subscribers": channel_data.get('subscriber_count', 0),
-            "lastVideoTitle": video_data.get('title', ''),
-            "videoUrl": f"https://youtube.com/watch?v={video_data.get('videoId', '')}",
+            "niche": niche,
             "topCommentAuthor": comment_data.get('author', ''),
             "topCommentText": comment_data.get('text', ''),
-            "commentCount": len(channel_data.get('comments_analyzed', []))
+            "lastVideoTitle": video_data.get('title', ''),
+            "yourName": SENDER_NAME
         }
         
-        # CLIENT OUTREACH TEMPLATE (not collaboration)
-        prompt = f"""Generate a personalized client outreach email for a video editing service. This is for acquiring the creator as a CLIENT for our video editing services, not for collaboration. Use the following data:
+        # The exact template from the uploaded file
+        subject_template = "I spent 3 hours analyzing your editing patterns - found something that could 10x your retention"
+        
+        plain_template = """Hey {{$json.aiInput.creatorName}},
 
-- Creator Name: {ai_input['creatorName']}
-- Channel Name: {ai_input['channelName']}  
-- Channel URL: {ai_input['channelUrl']}
-- Subscriber Count: {ai_input['subscribers']}
-- Recent Video Title: {ai_input['lastVideoTitle']}
-- Recent Video URL: {ai_input['videoUrl']}
-- Top Viewer Comment by {ai_input['topCommentAuthor']}: "{ai_input['topCommentText']}"
+I know this might sound crazy, but I just spent the last 3 hours diving deep into your recent videos, and I discovered something that made me pause my Netflix show at 2 AM.
 
-Requirements:
-- Position our video editing services as a solution for their channel growth
-- Reference their content specifically and show we've researched their channel
-- Focus on how professional editing can increase their revenue and audience
-- Include a clear call-to-action to book a consultation or get a quote
-- Keep tone professional but approachable
-- Output ONLY valid JSON with keys: subject, plain, html
-- Make it clear we're offering our services TO them, not asking for collaboration
+You're 1 of only 3 YouTubers whose channel I've analyzed this month that has the perfect storm for explosive growth — and honestly, I couldn't sleep without reaching out to you.
 
-Subject should be about offering video editing services that will grow their channel.
+Here's what caught my attention:
 
-Template structure:
-- Hook: Mention specific video or achievement
-- Problem identification: Subtle mention of editing improvements that could boost performance  
-- Solution: Our video editing services
-- Social proof: Brief mention of results we've achieved for other creators
-- Call-to-action: Book consultation or get quote
+Your content quality is solid (seriously, the way you handle {{$json.aiInput.niche}} is refreshing), but I noticed something in your comment section that most creators miss entirely.
 
-Output as JSON with subject, plain, and html keys."""
+For example, {{$json.aiInput.topCommentAuthor}} said: "{{$json.aiInput.topCommentText}}".
 
-        if GEMINI_API_KEY:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-            
-            headers = {'Content-Type': 'application/json'}
-            data = {
-                "contents": [{
-                    "parts": [{
-                        "text": prompt
-                    }]
-                }],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 2048
-                }
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=data) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                        
-                        try:
-                            json_start = generated_text.find('{')
-                            json_end = generated_text.rfind('}') + 1
-                            if json_start != -1 and json_end != -1:
-                                json_text = generated_text[json_start:json_end]
-                                return json.loads(json_text)
-                        except:
-                            pass
-                        
-                        return {
-                            "subject": "Professional Video Editing Services - Grow Your Channel Revenue",
-                            "plain": generated_text,
-                            "html": generated_text.replace('\n', '<br>')
-                        }
-                    
-    except Exception as e:
-        logger.error(f"Error generating AI email: {e}")
-    
-    # Fallback client outreach email
-    return {
-        "subject": f"Professional Video Editing Services for {channel_data.get('channel_title', '')}",
-        "plain": f"""Hi {ai_input['creatorName']},
+You're sitting at what I call the "retention goldmine" — you have the technical skills (evidenced by viewer comments), but your current editing score suggests you're tapping into about 50% of your potential.
 
-I came across your YouTube channel "{ai_input['channelName']}" and was impressed by your content, especially your recent video "{ai_input['lastVideoTitle']}".
+Quick micro-audit on your latest video, "{{$json.aiInput.lastVideoTitle}}":
+- The pacing in some sections feels a bit inconsistent, potentially causing viewers to disengage before key moments. A tighter edit could boost watch time.
+- Some on-screen text elements could be more dynamic to hold viewer attention throughout. We could explore more engaging motion graphics.
+- The color grading, while generally good, has minor inconsistencies that can be easily smoothed out for a more professional feel. This is something my services can address.
 
-With {ai_input['subscribers']:,} subscribers, you're at a great stage where professional video editing could significantly boost your channel's growth and revenue potential.
+The gap I identified: Your audio optimization and modern pacing techniques could increase your average view duration by 40–60%. I've seen this exact pattern with 2 other channels I've worked with — one went from 45K to 180K subs in 4 months after we fixed these specific elements.
 
-Our video editing team specializes in helping content creators like you:
-• Increase average view duration by 30-50%
-• Improve audience retention and engagement
-• Create more consistent, professional content
-• Save 10-15 hours per week on editing
+I specialize in bridging this exact gap — taking technically proficient creators like you and optimizing the retention psychology behind the scenes.
 
-We've helped creators grow from 50K to 500K+ subscribers through strategic editing improvements.
+What I'm proposing:
+- Free analysis of your top 3 performing videos
+- Custom editing strategy tailored to your audience's behavior patterns
+- Implementation that maintains your authentic style while maximizing watch time
 
-Would you be interested in a free consultation to discuss how we can help accelerate your channel's growth?
+I only take on 3–4 creators per quarter (quality over quantity), and your channel profile fits exactly what I'm looking for in a collaboration partner.
+
+Interested in seeing what those specific optimizations could look like for your content?
 
 Best regards,
-Professional Video Editing Team
+{yourName}
 
-P.S. I noticed the engagement on your videos - with the right editing enhancements, we could help you monetize that audience even more effectively.""",
-        "html": f"""<p>Hi {ai_input['creatorName']},</p>
-<p>I came across your YouTube channel "<strong>{ai_input['channelName']}</strong>" and was impressed by your content, especially your recent video "<em>{ai_input['lastVideoTitle']}</em>".</p>
-<p>With <strong>{ai_input['subscribers']:,} subscribers</strong>, you're at a great stage where professional video editing could significantly boost your channel's growth and revenue potential.</p>
-<p>Our video editing team specializes in helping content creators like you:</p>
-<ul>
-<li>Increase average view duration by 30-50%</li>
-<li>Improve audience retention and engagement</li>
-<li>Create more consistent, professional content</li>
-<li>Save 10-15 hours per week on editing</li>
-</ul>
-<p>We've helped creators grow from 50K to 500K+ subscribers through strategic editing improvements.</p>
-<p>Would you be interested in a <strong>free consultation</strong> to discuss how we can help accelerate your channel's growth?</p>
-<p>Best regards,<br>Professional Video Editing Team</p>
-<p><em>P.S. I noticed the engagement on your videos - with the right editing enhancements, we could help you monetize that audience even more effectively.</em></p>"""
-    }
+P.S. The text in your latest video seems to have a slight readability issue on smaller screens, which is a common but easily fixable problem with text animation."""
+
+        html_template = """Hey {{$json.aiInput.creatorName}},<br/><br/>I know this might sound crazy, but I just spent the last 3 hours diving deep into your recent videos, and I discovered something that made me pause my Netflix show at 2 AM.<br/><br/>You're 1 of only 3 YouTubers whose channel I've analyzed this month that has the perfect storm for explosive growth — and honestly, I couldn't sleep without reaching out to you.<br/><br/>Here's what caught my attention:<br/><br/>Your content quality is solid (seriously, the way you handle {{$json.aiInput.niche}} is refreshing), but I noticed something in your comment section that most creators miss entirely.<br/><br/>For example, {{$json.aiInput.topCommentAuthor}} said: "{{$json.aiInput.topCommentText}}".<br/><br/>You're sitting at what I call the "retention goldmine" — you have the technical skills (evidenced by viewer comments), but your current editing score suggests you're tapping into about 50% of your potential.<br/><br/>Quick micro-audit on your latest video, "{{$json.aiInput.lastVideoTitle}}":<br/><ul><li>The pacing in some sections feels a bit inconsistent, potentially causing viewers to disengage before key moments. A tighter edit could boost watch time.</li><li>Some on-screen text elements could be more dynamic to hold viewer attention throughout. We could explore more engaging motion graphics.</li><li>The color grading, while generally good, has minor inconsistencies that can be easily smoothed out for a more professional feel. This is something my services can address.</li></ul>The gap I identified: Your audio optimization and modern pacing techniques could increase your average view duration by 40–60%. I've seen this exact pattern with 2 other channels I've worked with — one went from 45K to 180K subs in 4 months after we fixed these specific elements.<br/><br/>I specialize in bridging this exact gap — taking technically proficient creators like you and optimizing the retention psychology behind the scenes.<br/><br/>What I'm proposing:<br/><ul><li>Free analysis of your top 3 performing videos</li><li>Custom editing strategy tailored to your audience's behavior patterns</li><li>Implementation that maintains your authentic style while maximizing watch time</li></ul>I only take on 3–4 creators per quarter (quality over quantity), and your channel profile fits exactly what I'm looking for in a collaboration partner.<br/><br/>Interested in seeing what those specific optimizations could look like for your content?<br/><br/>Best regards,<br/>{yourName}<br/><br/>P.S. The text in your latest video seems to have a slight readability issue on smaller screens, which is a common but easily fixable problem with text animation."""
+
+        # Process templates by replacing variables
+        def process_template(template: str, vars_dict: Dict) -> str:
+            result = template
+            # Replace {{$json.aiInput.variable}} format
+            for key, value in vars_dict.items():
+                if key != 'yourName':
+                    result = result.replace(f"{{{{$json.aiInput.{key}}}}}", str(value))
+            # Replace {yourName} format
+            result = result.replace("{yourName}", str(vars_dict['yourName']))
+            return result
+
+        # Generate the final email content
+        processed_subject = subject_template
+        processed_plain = process_template(plain_template, template_vars)
+        processed_html = process_template(html_template, template_vars)
+
+        return {
+            "subject": processed_subject,
+            "plain": processed_plain,
+            "html": processed_html
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing email template: {e}")
+        
+        # Fallback email in case of template processing errors
+        creator_name = channel_data.get('creator_name', channel_data.get('channel_title', ''))
+        return {
+            "subject": "I spent 3 hours analyzing your editing patterns - found something that could 10x your retention",
+            "plain": f"""Hey {creator_name},
+
+I know this might sound crazy, but I just spent the last 3 hours diving deep into your recent videos, and I discovered something that made me pause my Netflix show at 2 AM.
+
+You're 1 of only 3 YouTubers whose channel I've analyzed this month that has the perfect storm for explosive growth — and honestly, I couldn't sleep without reaching out to you.
+
+Your content quality is solid, but I noticed something in your comment section that most creators miss entirely.
+
+You're sitting at what I call the "retention goldmine" — you have the technical skills, but your current editing score suggests you're tapping into about 50% of your potential.
+
+I specialize in bridging this exact gap — taking technically proficient creators like you and optimizing the retention psychology behind the scenes.
+
+What I'm proposing:
+- Free analysis of your top 3 performing videos
+- Custom editing strategy tailored to your audience's behavior patterns
+- Implementation that maintains your authentic style while maximizing watch time
+
+Interested in seeing what those specific optimizations could look like for your content?
+
+Best regards,
+{SENDER_NAME}""",
+            "html": f"""Hey {creator_name},<br/><br/>I know this might sound crazy, but I just spent the last 3 hours diving deep into your recent videos, and I discovered something that made me pause my Netflix show at 2 AM.<br/><br/>You're 1 of only 3 YouTubers whose channel I've analyzed this month that has the perfect storm for explosive growth — and honestly, I couldn't sleep without reaching out to you.<br/><br/>Your content quality is solid, but I noticed something in your comment section that most creators miss entirely.<br/><br/>You're sitting at what I call the "retention goldmine" — you have the technical skills, but your current editing score suggests you're tapping into about 50% of your potential.<br/><br/>I specialize in bridging this exact gap — taking technically proficient creators like you and optimizing the retention psychology behind the scenes.<br/><br/>What I'm proposing:<br/><ul><li>Free analysis of your top 3 performing videos</li><li>Custom editing strategy tailored to your audience's behavior patterns</li><li>Implementation that maintains your authentic style while maximizing watch time</li></ul>Interested in seeing what those specific optimizations could look like for your content?<br/><br/>Best regards,<br/>{SENDER_NAME}"""
+        }
 
 async def send_email(to_email: str, subject: str, html_body: str, plain_body: str):
     """Send email via SMTP"""
