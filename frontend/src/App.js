@@ -72,6 +72,32 @@ function App() {
     }
   };
 
+  // Load performance metrics for monitoring dashboard
+  const loadPerformanceMetrics = async () => {
+    try {
+      setMonitoringLoading(true);
+      const response = await axios.get(`${API}/monitoring/performance-dashboard`);
+      setPerformanceMetrics(response.data);
+    } catch (error) {
+      console.error('Error loading performance metrics:', error);
+    } finally {
+      setMonitoringLoading(false);
+    }
+  };
+
+  // Auto-refresh monitoring data every 30 seconds
+  useEffect(() => {
+    let monitoringInterval;
+    if (selectedTab === 'monitoring') {
+      loadPerformanceMetrics(); // Initial load
+      monitoringInterval = setInterval(loadPerformanceMetrics, 30000); // Refresh every 30 seconds
+    }
+    
+    return () => {
+      if (monitoringInterval) clearInterval(monitoringInterval);
+    };
+  }, [selectedTab]);
+
   const loadLeads = async () => {
     try {
       const [mainResponse, noEmailResponse] = await Promise.all([
