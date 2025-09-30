@@ -5437,8 +5437,240 @@ async def get_detection_statistics():
         logger.error(f"Error getting detection statistics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# =============================================================================
+# SMART QUEUE PROCESSING & ERROR RECOVERY API ENDPOINTS
+# =============================================================================
+
+@api_router.post("/queue/smart-process")
+async def start_smart_queue_processing():
+    """Start intelligent queue processing with health-based account selection"""
+    try:
+        result = await smart_queue_processor()
+        return {
+            "message": "Smart queue processing completed",
+            "result": result,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error starting smart queue processing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/queue/processing-status")
+async def get_queue_processing_status():
+    """Get detailed queue processing status and metrics"""
+    try:
+        # Current processing status
+        concurrent_processing = await db.scraping_queue.count_documents({"status": "processing"})
+        pending_requests = await db.scraping_queue.count_documents({"status": "pending"})
+        failed_requests = await db.scraping_queue.count_documents({"status": "failed"})
+        
+        # Available resources
+        healthy_accounts = 0
+        available_proxies = 0
+        
+        # Count healthy accounts
+        current_time = datetime.now(timezone.utc)
+        accounts_cursor = db.youtube_accounts.find({
+            "status": {"$nin": ["banned", "rate_limited"]},
+            "$or": [
+                {"cooldown_until": {"$exists": False}},
+                {"cooldown_until": {"$lte": current_time}}
+            ]
+        })
+        
+        async for account in accounts_cursor:
+            if not await is_account_rate_limited(account["id"]):
+                healthy_accounts += 1
+        
+        # Count available proxies
+        available_proxies = await db.proxy_pool.count_documents({
+            "status": "active",
+            "health_status": "healthy",
+            "$or": [
+                {"cooldown_until": {"$exists": False}},
+                {"cooldown_until": {"$lte": current_time}}
+            ]
+        })
+        
+        # Recent processing history
+        recent_completions = await db.scraping_queue.count_documents({
+            "status": "completed",
+            "completed_at": {"$gte": current_time - timedelta(hours=1)}
+        })
+        
+        return {
+            "message": "Queue processing status retrieved",
+            "status": {
+                "concurrent_processing": concurrent_processing,
+                "max_concurrent": MAX_CONCURRENT_PROCESSING,
+                "available_slots": MAX_CONCURRENT_PROCESSING - concurrent_processing,
+                "pending_requests": pending_requests,
+                "failed_requests": failed_requests,
+                "healthy_accounts": healthy_accounts,
+                "available_proxies": available_proxies,
+                "recent_completions": recent_completions,
+                "processing_capacity": f"{concurrent_processing}/{MAX_CONCURRENT_PROCESSING}"
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting queue processing status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/queue/retry-failed")
+async def retry_failed_requests():
+    """Retry all failed requests with fresh account/proxy assignment"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Find failed requests that can be retried
+        failed_requests = await db.scraping_queue.find({
+            "status": "failed",
+            "total_attempts": {"$lt": QUEUE_RETRY_ATTEMPTS}
+        }).to_list(length=100)
+        
+        if not failed_requests:
+            return {
+                "message": "No failed requests available for retry",
+                "retried_count": 0
+            }
+        
+        retried_count = 0
+        for request in failed_requests:
+            # Reset request for retry with exponential backoff
+            retry_delay = 5 * (2 ** (request.get("total_attempts", 0)))  # 5, 10, 20, 40 minutes
+            retry_time = current_time + timedelta(minutes=retry_delay)
+            
+            await db.scraping_queue.update_one(
+                {"id": request["id"]},
+                {
+                    "$set": {
+                        "status": "pending",
+                        "scheduled_time": retry_time,
+                        "account_id": None,  # Clear for fresh assignment
+                        "proxy_id": None,    # Clear for fresh assignment
+                        "attempts": 0        # Reset attempts counter
+                    }
+                }
+            )
+            retried_count += 1
+        
+        await send_discord_notification(
+            f"🔄 **Failed Requests Retry**\n"
+            f"📊 Retried: {retried_count} requests\n"
+            f"⏰ With exponential backoff delays"
+        )
+        
+        return {
+            "message": f"Successfully scheduled {retried_count} failed requests for retry",
+            "retried_count": retried_count,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error retrying failed requests: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/queue/error-analysis")
+async def get_queue_error_analysis():
+    """Get detailed analysis of queue processing errors"""
+    try:
+        # Get error patterns from recent failed requests
+        failed_requests = await db.scraping_queue.find({
+            "status": {"$in": ["failed", "processing"]},
+            "error_history": {"$exists": True}
+        }).to_list(length=200)
+        
+        error_patterns = {}
+        account_errors = {}
+        proxy_errors = {}
+        
+        for request in failed_requests:
+            error_history = request.get("error_history", [])
+            for error in error_history:
+                error_msg = error.get("error", "Unknown error")
+                account_id = error.get("account_id")
+                proxy_id = error.get("proxy_id")
+                
+                # Pattern analysis
+                error_type = "other"
+                if await detect_rate_limit_from_error(error_msg):
+                    error_type = "rate_limit"
+                elif await detect_account_block_from_error(error_msg):
+                    error_type = "account_block"
+                elif await detect_ip_block_from_error(error_msg):
+                    error_type = "ip_block"
+                
+                error_patterns[error_type] = error_patterns.get(error_type, 0) + 1
+                
+                # Account error tracking
+                if account_id:
+                    account_errors[account_id] = account_errors.get(account_id, 0) + 1
+                
+                # Proxy error tracking
+                if proxy_id:
+                    proxy_errors[proxy_id] = proxy_errors.get(proxy_id, 0) + 1
+        
+        # Find most problematic accounts and proxies
+        top_problem_accounts = sorted(account_errors.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_problem_proxies = sorted(proxy_errors.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        return {
+            "message": "Queue error analysis completed",
+            "analysis": {
+                "error_patterns": error_patterns,
+                "total_errors": sum(error_patterns.values()),
+                "top_problem_accounts": [{"account_id": acc, "error_count": count} for acc, count in top_problem_accounts],
+                "top_problem_proxies": [{"proxy_id": proxy, "error_count": count} for proxy, count in top_problem_proxies],
+                "recommendations": await generate_error_recommendations(error_patterns, account_errors, proxy_errors)
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing queue errors: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def generate_error_recommendations(error_patterns: dict, account_errors: dict, proxy_errors: dict):
+    """Generate recommendations based on error analysis"""
+    recommendations = []
+    
+    # Rate limit recommendations
+    if error_patterns.get("rate_limit", 0) > 10:
+        recommendations.append("🕐 Consider increasing account cooldown periods due to high rate limit errors")
+        recommendations.append("⚡ Add more YouTube accounts to distribute load")
+    
+    # Account block recommendations
+    if error_patterns.get("account_block", 0) > 5:
+        recommendations.append("🚫 Review account management - high account block rate detected")
+        recommendations.append("🔄 Implement account rotation more frequently")
+    
+    # IP block recommendations
+    if error_patterns.get("ip_block", 0) > 5:
+        recommendations.append("🌐 Add more diverse proxy sources - IP blocks detected")
+        recommendations.append("🔄 Increase proxy rotation frequency")
+    
+    # Account-specific recommendations
+    if len(account_errors) > 0:
+        avg_errors = sum(account_errors.values()) / len(account_errors)
+        if avg_errors > 10:
+            recommendations.append("👥 Some accounts have high error rates - consider account health review")
+    
+    # Proxy-specific recommendations
+    if len(proxy_errors) > 0:
+        avg_proxy_errors = sum(proxy_errors.values()) / len(proxy_errors)
+        if avg_proxy_errors > 15:
+            recommendations.append("🌍 Some proxies have high error rates - consider proxy pool cleanup")
+    
+    return recommendations
+
 # Include the router in the main app
 app.include_router(api_router)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
