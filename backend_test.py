@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 
 # Backend URL Configuration
-BACKEND_URL = "https://youtube-outreach.preview.emergentagent.com/api"
+BACKEND_URL = "https://exec-guide.preview.emergentagent.com/api"
 
 class ProxyManagementTester:
     def __init__(self):
