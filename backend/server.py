@@ -3485,6 +3485,336 @@ async def validate_account_session(account_id: str):
         logger.error(f"Error validating account session {account_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# =============================================================================
+# STEP 5: ACCOUNT HEALTH MONITORING API ENDPOINTS
+# =============================================================================
+
+@api_router.get("/accounts/{account_id}/health")
+async def check_account_health_endpoint(account_id: str):
+    """Get comprehensive health check for a specific account"""
+    try:
+        health_report = await check_account_health(account_id)
+        
+        return {
+            "message": "Account health check completed",
+            "health_report": health_report,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking account health {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts/health/monitor-all")
+async def monitor_all_accounts_endpoint():
+    """Monitor health of all accounts and return comprehensive summary"""
+    try:
+        monitoring_summary = await monitor_all_accounts()
+        
+        return {
+            "message": "All accounts monitoring completed",
+            "monitoring_summary": monitoring_summary,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error monitoring all accounts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/accounts/{account_id}/auto-switch")
+async def auto_switch_account_endpoint(account_id: str, reason: str = "manual_request"):
+    """Trigger automatic account switching for a problematic account"""
+    try:
+        new_account = await auto_switch_account(account_id, reason)
+        
+        if new_account:
+            return {
+                "message": "Account switched successfully",
+                "old_account_id": account_id,
+                "new_account": {
+                    "id": new_account.id,
+                    "email": new_account.email,
+                    "status": new_account.status,
+                    "success_rate": new_account.success_rate
+                },
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        else:
+            return {
+                "message": "No healthy accounts available for switching",
+                "old_account_id": account_id,
+                "new_account": None,
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        
+    except Exception as e:
+        logger.error(f"Error auto-switching account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts/healthiest")
+async def get_healthiest_account_endpoint():
+    """Get the account with the best health metrics"""
+    try:
+        healthiest_account = await get_healthiest_available_account()
+        
+        if healthiest_account:
+            return {
+                "message": "Healthiest account retrieved successfully",
+                "account": {
+                    "id": healthiest_account.id,
+                    "email": healthiest_account.email,
+                    "status": healthiest_account.status,
+                    "success_rate": healthiest_account.success_rate,
+                    "daily_requests_count": healthiest_account.daily_requests_count,
+                    "last_used": healthiest_account.last_used.isoformat() if healthiest_account.last_used else None
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        else:
+            raise HTTPException(status_code=404, detail="No healthy accounts available")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting healthiest account: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/accounts/{account_id}/cooldown")
+async def apply_account_cooldown_endpoint(account_id: str, cooldown_minutes: int = None):
+    """Apply cooldown period to an account"""
+    try:
+        await apply_account_cooldown(account_id, cooldown_minutes)
+        
+        return {
+            "message": f"Cooldown applied successfully",
+            "account_id": account_id,
+            "cooldown_minutes": cooldown_minutes or ACCOUNT_COOLDOWN_MINUTES,
+            "cooldown_until": (datetime.now(timezone.utc) + timedelta(minutes=cooldown_minutes or ACCOUNT_COOLDOWN_MINUTES)).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error applying cooldown to account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/accounts/{account_id}/usage-logs")
+async def get_account_usage_logs_endpoint(account_id: str, limit: int = 50, skip: int = 0):
+    """Get usage logs for a specific account"""
+    try:
+        logs_cursor = db.account_usage_logs.find({
+            "account_id": account_id
+        }).sort("timestamp", -1).skip(skip).limit(limit)
+        
+        logs = await logs_cursor.to_list(limit)
+        
+        return {
+            "message": "Usage logs retrieved successfully",
+            "account_id": account_id,
+            "logs": logs,
+            "count": len(logs),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting usage logs for account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# STEP 6: ANTI-DETECTION BROWSER API ENDPOINTS  
+# =============================================================================
+
+@api_router.post("/browser/stealth-session/create")
+async def create_stealth_session_endpoint(account_id: str, use_proxy: bool = True, session_type: str = "youtube_scraping"):
+    """Create an enhanced anti-detection browser session"""
+    try:
+        session_info = await create_enhanced_stealth_session(account_id, use_proxy, session_type)
+        
+        # We can't return browser objects, so return session metadata
+        return {
+            "message": "Stealth session created successfully",
+            "session_id": session_info["session_id"],
+            "account_id": account_id,
+            "fingerprint": {
+                "user_agent": session_info["fingerprint"]["user_agent"][:100] + "...",
+                "viewport": session_info["fingerprint"]["viewport"],
+                "timezone": session_info["fingerprint"]["timezone"],
+                "language": session_info["fingerprint"]["language"]
+            },
+            "proxy_info": {
+                "enabled": use_proxy,
+                "location": session_info["proxy_config"].location if session_info["proxy_config"] else None,
+                "ip": session_info["proxy_config"].ip if session_info["proxy_config"] else None
+            } if use_proxy else {"enabled": False},
+            "session_type": session_type,
+            "created_at": session_info["created_at"].isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating stealth session for account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/browser/fingerprint/generate")
+async def generate_browser_fingerprint_endpoint():
+    """Generate a new randomized browser fingerprint"""
+    try:
+        fingerprint = get_random_fingerprint()
+        
+        return {
+            "message": "Browser fingerprint generated successfully",
+            "fingerprint": fingerprint,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating browser fingerprint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/browser/user-agents")
+async def get_available_user_agents_endpoint():
+    """Get list of available user agents for rotation"""
+    try:
+        return {
+            "message": "User agents retrieved successfully",
+            "user_agents": EXTENDED_USER_AGENTS,
+            "count": len(EXTENDED_USER_AGENTS),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting user agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/browser/viewports")
+async def get_available_viewports_endpoint():
+    """Get list of available viewport configurations"""
+    try:
+        return {
+            "message": "Viewports retrieved successfully",
+            "viewports": BROWSER_VIEWPORTS,
+            "screen_resolutions": SCREEN_RESOLUTIONS,
+            "count": len(BROWSER_VIEWPORTS),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting viewports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/browser/test-stealth")
+async def test_stealth_browser_endpoint(account_id: str):
+    """Test stealth browser functionality with bot detection checks"""
+    try:
+        logger.info(f"Testing stealth browser for account {account_id}")
+        
+        # Create stealth session
+        session_info = await create_enhanced_stealth_session(account_id, use_proxy=True, session_type="stealth_test")
+        
+        page = session_info["page"]
+        test_results = {
+            "account_id": account_id,
+            "session_id": session_info["session_id"],
+            "tests": {},
+            "overall_score": 0,
+            "stealth_level": "unknown"
+        }
+        
+        try:
+            # Test 1: Bot detection test
+            await page.goto("https://bot.sannysoft.com/", timeout=30000)
+            await simulate_human_behavior(page, (2, 4))
+            
+            # Check for bot detection indicators
+            page_content = await page.content()
+            bot_indicators = ["WebDriver", "Chrome headless", "Headless Chrome"]
+            detected_indicators = [indicator for indicator in bot_indicators if indicator in page_content]
+            
+            test_results["tests"]["bot_detection"] = {
+                "passed": len(detected_indicators) == 0,
+                "detected_indicators": detected_indicators,
+                "score": 100 if len(detected_indicators) == 0 else max(0, 100 - len(detected_indicators) * 25)
+            }
+            
+            # Test 2: Canvas fingerprinting test
+            canvas_fp = await page.evaluate("""
+                () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.textBaseline = 'top';
+                    ctx.font = '14px Arial';
+                    ctx.fillText('Stealth test 12345', 2, 2);
+                    return canvas.toDataURL();
+                }
+            """)
+            
+            test_results["tests"]["canvas_fingerprint"] = {
+                "passed": bool(canvas_fp),
+                "fingerprint_generated": bool(canvas_fp),
+                "score": 100 if canvas_fp else 0
+            }
+            
+            # Test 3: WebGL fingerprinting
+            webgl_info = await page.evaluate("""
+                () => {
+                    const canvas = document.createElement('canvas');
+                    const gl = canvas.getContext('webgl');
+                    if (!gl) return null;
+                    return {
+                        vendor: gl.getParameter(gl.VENDOR),
+                        renderer: gl.getParameter(gl.RENDERER)
+                    };
+                }
+            """)
+            
+            test_results["tests"]["webgl_fingerprint"] = {
+                "passed": bool(webgl_info),
+                "vendor": webgl_info.get("vendor") if webgl_info else None,
+                "renderer": webgl_info.get("renderer") if webgl_info else None,
+                "score": 100 if webgl_info else 0
+            }
+            
+        finally:
+            # Clean up browser session
+            await session_info["browser"].close()
+        
+        # Calculate overall score
+        scores = [test["score"] for test in test_results["tests"].values()]
+        test_results["overall_score"] = sum(scores) / len(scores) if scores else 0
+        
+        # Determine stealth level
+        if test_results["overall_score"] >= 90:
+            test_results["stealth_level"] = "excellent"
+        elif test_results["overall_score"] >= 70:
+            test_results["stealth_level"] = "good"
+        elif test_results["overall_score"] >= 50:
+            test_results["stealth_level"] = "fair"
+        else:
+            test_results["stealth_level"] = "poor"
+        
+        # Log test results
+        await log_account_usage_pattern(
+            account_id,
+            "stealth_test_completed",
+            test_results["overall_score"] >= 70,
+            {
+                "overall_score": test_results["overall_score"],
+                "stealth_level": test_results["stealth_level"],
+                "test_results": test_results["tests"]
+            }
+        )
+        
+        return {
+            "message": "Stealth browser test completed",
+            "test_results": test_results,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing stealth browser for account {account_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Proxy Management API Routes
 @api_router.post("/proxies/add", response_model=ProxyConfig)
 async def add_proxy(request: ProxyAddRequest):
