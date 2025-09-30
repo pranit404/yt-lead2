@@ -4388,6 +4388,66 @@ async def test_authenticated_scraping(channel_id: str):
             "success": False
         }
 
+@api_router.post("/debug/test-ai-video-analysis")
+async def test_ai_video_analysis():
+    """Debug endpoint to test the AI video analysis with Gemini"""
+    try:
+        # Sample test data with actual video URLs
+        channel_data = {
+            "creator_name": "TestCreator",
+            "channel_title": "Gaming Channel Test",
+            "channel_id": "UCtest123",
+            "description": "Welcome to my gaming channel where I play the latest games and review tech gadgets"
+        }
+        
+        video_data = {
+            "title": "My Latest Gaming Review - Best Setup 2025",
+            "videoId": "dQw4w9WgXcQ"
+        }
+        
+        comment_data = {
+            "author": "TestViewer",
+            "text": "Great video! Your editing is getting better but the audio could use some work."
+        }
+        
+        # Test video URLs for analysis
+        video_urls = [
+            "https://youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtube.com/watch?v=example123",
+            "https://youtube.com/watch?v=test456"
+        ]
+        
+        # Test AI video analysis
+        ai_analysis = await analyze_video_with_gemini(video_urls, channel_data, video_data)
+        
+        # Generate email using new template with AI analysis
+        email_result = await generate_client_outreach_email(channel_data, video_data, comment_data, video_urls)
+        
+        # Also test niche detection
+        detected_niche = detect_channel_niche(channel_data, video_data)
+        
+        return {
+            "test_data": {
+                "channel_data": channel_data,
+                "video_data": video_data,
+                "comment_data": comment_data,
+                "video_urls": video_urls
+            },
+            "ai_video_analysis": ai_analysis,
+            "detected_niche": detected_niche,
+            "email_result": email_result,
+            "sender_name": SENDER_NAME,
+            "success": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing AI video analysis: {e}")
+        return {
+            "error": str(e),
+            "success": False
+        }
+
+
 @api_router.post("/debug/test-email-template")
 async def test_email_template():
     """Debug endpoint to test the new email template processing"""
