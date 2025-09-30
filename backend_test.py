@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backend Testing Suite for YouTube Lead Generation Platform
-Focus: Request Queue & Rate Limiting Foundation Testing (Phase 1 Step 3)
+Focus: Phase 5 Monitoring and Optimization Endpoints Testing
 """
 
 import requests
