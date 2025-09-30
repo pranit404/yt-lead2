@@ -4291,6 +4291,53 @@ async def test_authenticated_scraping(channel_id: str):
             "success": False
         }
 
+@api_router.post("/debug/test-email-template")
+async def test_email_template():
+    """Debug endpoint to test the new email template processing"""
+    try:
+        # Sample test data
+        channel_data = {
+            "creator_name": "TestCreator",
+            "channel_title": "Gaming Channel Test",
+            "channel_id": "UCtest123",
+            "description": "Welcome to my gaming channel where I play the latest games and review tech gadgets"
+        }
+        
+        video_data = {
+            "title": "My Latest Gaming Review - Best Setup 2025",
+            "videoId": "dQw4w9WgXcQ"
+        }
+        
+        comment_data = {
+            "author": "TestViewer",
+            "text": "Great video! Your editing is getting better but the audio could use some work."
+        }
+        
+        # Generate email using new template
+        email_result = await generate_client_outreach_email(channel_data, video_data, comment_data)
+        
+        # Also test niche detection
+        detected_niche = detect_channel_niche(channel_data, video_data)
+        
+        return {
+            "test_data": {
+                "channel_data": channel_data,
+                "video_data": video_data,
+                "comment_data": comment_data
+            },
+            "detected_niche": detected_niche,
+            "email_result": email_result,
+            "sender_name": SENDER_NAME,
+            "success": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing email template: {e}")
+        return {
+            "error": str(e),
+            "success": False
+        }
+
 @api_router.get("/accounts/session/status")
 async def get_all_accounts_session_status():
     """Get session status for all YouTube accounts"""
