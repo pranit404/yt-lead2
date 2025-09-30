@@ -5734,7 +5734,7 @@ async def send_performance_alert(alert: Dict[str, Any]):
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(DISCORD_WEBHOOK_URL, json=payload) as response:
+            async with session.post(DISCORD_WEBHOOK, json=payload) as response:
                 if response.status == 200:
                     logger.info(f"✅ Alert sent to Discord: {alert['message']}")
                 else:
