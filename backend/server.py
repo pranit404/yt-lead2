@@ -4188,6 +4188,17 @@ async def process_lead_generation(status_id: str, request: LeadGenerationRequest
         
         await send_discord_notification(f"❌ **Lead Generation Failed:** {str(e)}")
 
+def get_video_urls_from_data(videos: List[Dict]) -> List[str]:
+    """Convert video data to URLs for analysis"""
+    video_urls = []
+    for video in videos[:3]:  # Limit to 3 videos
+        if isinstance(video, dict):
+            video_id = video.get('videoId') or video.get('id', {}).get('videoId') if isinstance(video.get('id'), dict) else video.get('id')
+            if video_id:
+                video_urls.append(f"https://youtube.com/watch?v={video_id}")
+    return video_urls
+
+
 async def process_channel_with_email(channel: Channel):
     """Process channel that has email - full analysis"""
     try:
