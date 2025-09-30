@@ -6689,7 +6689,13 @@ async def analyze_channel_and_send_email(request: ChannelAnalysisRequest):
         
         # Step 7: Generate outreach email
         logger.info("Generating outreach email using new template")
-        email_content = await generate_client_outreach_email(channel_data, video_data, comment_data)
+        
+        # Generate video URLs for AI analysis
+        video_urls = []
+        if videos:
+            video_urls = get_video_urls_from_data(videos)
+            
+        email_content = await generate_client_outreach_email(channel_data, video_data, comment_data, video_urls)
         
         # Step 8: Prepare comprehensive analysis results
         analysis_results.update({
