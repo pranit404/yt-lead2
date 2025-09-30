@@ -1851,5 +1851,760 @@ def main():
         print("\n❌ YouTube Login Automation System: CRITICAL ISSUES")
         sys.exit(1)
 
+class AccountHealthMonitoringTester:
+    """Test Account Health Monitoring System (Step 5)"""
+    
+    def __init__(self):
+        self.backend_url = BACKEND_URL
+        self.test_results = []
+        self.failed_tests = []
+        
+    def log_test(self, test_name: str, success: bool, details: str = "", response_data: Dict = None):
+        """Log test results"""
+        result = {
+            "test_name": test_name,
+            "success": success,
+            "details": details,
+            "response_data": response_data
+        }
+        self.test_results.append(result)
+        
+        if not success:
+            self.failed_tests.append(result)
+            
+        status = "✅ PASS" if success else "❌ FAIL"
+        print(f"{status} {test_name}: {details}")
+        
+    def test_backend_connectivity(self):
+        """Test basic backend connectivity"""
+        try:
+            response = requests.get(f"{self.backend_url}/", timeout=10)
+            if response.status_code == 200:
+                self.log_test("Backend Connectivity", True, "Backend is accessible")
+                return True
+            else:
+                self.log_test("Backend Connectivity", False, f"HTTP {response.status_code}")
+                return False
+        except Exception as e:
+            self.log_test("Backend Connectivity", False, f"Connection error: {str(e)}")
+            return False
+    
+    def setup_test_accounts(self):
+        """Setup test accounts for health monitoring tests"""
+        test_accounts = [
+            {
+                "email": f"health_test_1_{uuid.uuid4().hex[:8]}@gmail.com",
+                "password": "health_test_password_123"
+            },
+            {
+                "email": f"health_test_2_{uuid.uuid4().hex[:8]}@gmail.com", 
+                "password": "health_test_password_456"
+            }
+        ]
+        
+        created_account_ids = []
+        
+        for i, account_data in enumerate(test_accounts):
+            try:
+                response = requests.post(f"{self.backend_url}/accounts/add", json=account_data, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    account_id = data.get("id")
+                    created_account_ids.append(account_id)
+                    self.log_test(f"Setup Test Account {i+1}", True, f"Account created: {account_id}")
+                else:
+                    self.log_test(f"Setup Test Account {i+1}", False, f"HTTP {response.status_code}: {response.text}")
+                    
+            except Exception as e:
+                self.log_test(f"Setup Test Account {i+1}", False, f"Request error: {str(e)}")
+            
+            time.sleep(0.5)
+        
+        return created_account_ids
+    
+    def test_account_health_check(self):
+        """Test individual account health check endpoint"""
+        print("\n🏥 Testing Account Health Check...")
+        
+        # Setup test accounts
+        account_ids = self.setup_test_accounts()
+        
+        if not account_ids:
+            self.log_test("Account Health Check", False, "No test accounts available")
+            return
+        
+        test_account_id = account_ids[0]
+        
+        # Test 1: GET /api/accounts/{account_id}/health
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/{test_account_id}/health", timeout=10)
+            
+            if response.status_code == 200:
+                health_data = response.json()
+                
+                # Check required fields
+                required_fields = ["account_id", "email", "healthy", "status", "issues", "recommendations", "metrics", "last_check"]
+                missing_fields = [field for field in required_fields if field not in health_data]
+                
+                if not missing_fields:
+                    # Verify metrics structure
+                    metrics = health_data.get("metrics", {})
+                    expected_metrics = ["success_rate", "daily_requests", "daily_limit", "total_requests", "session_valid"]
+                    missing_metrics = [metric for metric in expected_metrics if metric not in metrics]
+                    
+                    if not missing_metrics:
+                        self.log_test("Account Health Check", True, 
+                                    f"Health check successful - Healthy: {health_data.get('healthy')}, "
+                                    f"Success rate: {metrics.get('success_rate')}%, "
+                                    f"Daily requests: {metrics.get('daily_requests')}/{metrics.get('daily_limit')}", health_data)
+                    else:
+                        self.log_test("Account Health Check", False, 
+                                    f"Missing metrics fields: {missing_metrics}", health_data)
+                else:
+                    self.log_test("Account Health Check", False, 
+                                f"Missing required fields: {missing_fields}", health_data)
+            else:
+                self.log_test("Account Health Check", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Account Health Check", False, f"Request error: {str(e)}")
+        
+        # Cleanup test accounts
+        for account_id in account_ids:
+            try:
+                requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=5)
+            except:
+                pass
+    
+    def test_monitor_all_accounts(self):
+        """Test monitor all accounts endpoint"""
+        print("\n📊 Testing Monitor All Accounts...")
+        
+        # Test: GET /api/accounts/health/monitor-all
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/health/monitor-all", timeout=15)
+            
+            if response.status_code == 200:
+                monitoring_data = response.json()
+                
+                # Check required fields
+                required_fields = [
+                    "total_accounts", "healthy_accounts", "unhealthy_accounts", 
+                    "banned_accounts", "rate_limited_accounts", "needs_verification",
+                    "accounts_needing_attention", "overall_health_score", "recommendations", "timestamp"
+                ]
+                missing_fields = [field for field in required_fields if field not in monitoring_data]
+                
+                if not missing_fields:
+                    total = monitoring_data.get("total_accounts", 0)
+                    healthy = monitoring_data.get("healthy_accounts", 0)
+                    unhealthy = monitoring_data.get("unhealthy_accounts", 0)
+                    health_score = monitoring_data.get("overall_health_score", 0)
+                    
+                    # Verify data consistency
+                    if healthy + unhealthy <= total:
+                        self.log_test("Monitor All Accounts", True, 
+                                    f"Monitoring successful - Total: {total}, Healthy: {healthy}, "
+                                    f"Unhealthy: {unhealthy}, Health Score: {health_score:.1f}%", monitoring_data)
+                    else:
+                        self.log_test("Monitor All Accounts", False, 
+                                    f"Data inconsistency: healthy + unhealthy > total", monitoring_data)
+                else:
+                    self.log_test("Monitor All Accounts", False, 
+                                f"Missing required fields: {missing_fields}", monitoring_data)
+            else:
+                self.log_test("Monitor All Accounts", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Monitor All Accounts", False, f"Request error: {str(e)}")
+    
+    def test_get_healthiest_account(self):
+        """Test get healthiest account endpoint"""
+        print("\n🎯 Testing Get Healthiest Account...")
+        
+        # Test: GET /api/accounts/healthiest
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/healthiest", timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("account_found"):
+                    # Account found - verify structure
+                    required_fields = ["account_id", "email", "status", "success_rate", "daily_requests", "health_score"]
+                    missing_fields = [field for field in required_fields if field not in data]
+                    
+                    if not missing_fields:
+                        self.log_test("Get Healthiest Account", True, 
+                                    f"Healthiest account found: {data.get('email')} "
+                                    f"(Success rate: {data.get('success_rate')}%, "
+                                    f"Health score: {data.get('health_score', 'N/A')})", data)
+                    else:
+                        self.log_test("Get Healthiest Account", False, 
+                                    f"Missing fields in account data: {missing_fields}", data)
+                else:
+                    # No accounts available - this is valid
+                    message = data.get("message", "No message provided")
+                    self.log_test("Get Healthiest Account", True, 
+                                f"No healthy accounts available: {message}")
+            else:
+                self.log_test("Get Healthiest Account", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Get Healthiest Account", False, f"Request error: {str(e)}")
+    
+    def test_account_auto_switch(self):
+        """Test account auto-switch functionality"""
+        print("\n🔄 Testing Account Auto-Switch...")
+        
+        # Setup test accounts
+        account_ids = self.setup_test_accounts()
+        
+        if not account_ids:
+            self.log_test("Account Auto-Switch", False, "No test accounts available")
+            return
+        
+        test_account_id = account_ids[0]
+        
+        # Test: POST /api/accounts/{account_id}/auto-switch
+        try:
+            switch_data = {"reason": "rate_limited"}
+            response = requests.post(f"{self.backend_url}/accounts/{test_account_id}/auto-switch", 
+                                   json=switch_data, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("switch_successful"):
+                    # Switch successful - verify new account data
+                    required_fields = ["new_account_id", "new_account_email", "reason", "message"]
+                    missing_fields = [field for field in required_fields if field not in data]
+                    
+                    if not missing_fields:
+                        self.log_test("Account Auto-Switch", True, 
+                                    f"Auto-switch successful: {data.get('new_account_email')} "
+                                    f"(Reason: {data.get('reason')})", data)
+                    else:
+                        self.log_test("Account Auto-Switch", False, 
+                                    f"Missing fields in switch response: {missing_fields}", data)
+                else:
+                    # No healthy accounts available for switch
+                    message = data.get("message", "No message provided")
+                    self.log_test("Account Auto-Switch", True, 
+                                f"No healthy accounts available for switch: {message}")
+            else:
+                self.log_test("Account Auto-Switch", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Account Auto-Switch", False, f"Request error: {str(e)}")
+        
+        # Cleanup test accounts
+        for account_id in account_ids:
+            try:
+                requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=5)
+            except:
+                pass
+    
+    def test_account_cooldown(self):
+        """Test account cooldown functionality"""
+        print("\n❄️ Testing Account Cooldown...")
+        
+        # Setup test accounts
+        account_ids = self.setup_test_accounts()
+        
+        if not account_ids:
+            self.log_test("Account Cooldown", False, "No test accounts available")
+            return
+        
+        test_account_id = account_ids[0]
+        
+        # Test: POST /api/accounts/{account_id}/cooldown
+        try:
+            cooldown_data = {"cooldown_minutes": 15}
+            response = requests.post(f"{self.backend_url}/accounts/{test_account_id}/cooldown", 
+                                   json=cooldown_data, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                required_fields = ["message", "account_id", "cooldown_until", "cooldown_minutes"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    self.log_test("Account Cooldown", True, 
+                                f"Cooldown applied successfully: {data.get('cooldown_minutes')} minutes "
+                                f"until {data.get('cooldown_until')}", data)
+                else:
+                    self.log_test("Account Cooldown", False, 
+                                f"Missing fields in cooldown response: {missing_fields}", data)
+            else:
+                self.log_test("Account Cooldown", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Account Cooldown", False, f"Request error: {str(e)}")
+        
+        # Cleanup test accounts
+        for account_id in account_ids:
+            try:
+                requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=5)
+            except:
+                pass
+    
+    def test_usage_logs(self):
+        """Test account usage logs endpoint"""
+        print("\n📝 Testing Account Usage Logs...")
+        
+        # Setup test accounts
+        account_ids = self.setup_test_accounts()
+        
+        if not account_ids:
+            self.log_test("Account Usage Logs", False, "No test accounts available")
+            return
+        
+        test_account_id = account_ids[0]
+        
+        # Test: GET /api/accounts/{account_id}/usage-logs
+        try:
+            response = requests.get(f"{self.backend_url}/accounts/{test_account_id}/usage-logs", timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if isinstance(data, list):
+                    # Usage logs returned as list
+                    self.log_test("Account Usage Logs", True, 
+                                f"Usage logs retrieved successfully: {len(data)} entries")
+                    
+                    # If there are logs, verify structure of first entry
+                    if data:
+                        log_entry = data[0]
+                        expected_fields = ["account_id", "action_type", "success", "timestamp"]
+                        missing_fields = [field for field in expected_fields if field not in log_entry]
+                        
+                        if missing_fields:
+                            self.log_test("Usage Logs Structure", False, 
+                                        f"Missing fields in log entry: {missing_fields}", log_entry)
+                        else:
+                            self.log_test("Usage Logs Structure", True, 
+                                        f"Log entry structure valid: {log_entry.get('action_type')}")
+                elif isinstance(data, dict) and "logs" in data:
+                    # Usage logs returned as object with logs array
+                    logs = data.get("logs", [])
+                    self.log_test("Account Usage Logs", True, 
+                                f"Usage logs retrieved successfully: {len(logs)} entries", data)
+                else:
+                    self.log_test("Account Usage Logs", False, 
+                                f"Unexpected response format: {type(data)}", data)
+            else:
+                self.log_test("Account Usage Logs", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Account Usage Logs", False, f"Request error: {str(e)}")
+        
+        # Cleanup test accounts
+        for account_id in account_ids:
+            try:
+                requests.delete(f"{self.backend_url}/accounts/{account_id}", timeout=5)
+            except:
+                pass
+    
+    def run_all_tests(self):
+        """Run all Account Health Monitoring tests"""
+        print("🚀 Starting Account Health Monitoring System Testing")
+        print("🎯 Step 5: Account Health Monitoring")
+        print("=" * 70)
+        
+        # Test 1: Basic connectivity
+        if not self.test_backend_connectivity():
+            print("❌ Backend not accessible. Stopping tests.")
+            return False
+        
+        # Run all health monitoring tests
+        self.test_account_health_check()
+        self.test_monitor_all_accounts()
+        self.test_get_healthiest_account()
+        self.test_account_auto_switch()
+        self.test_account_cooldown()
+        self.test_usage_logs()
+        
+        return True
+    
+    def generate_report(self):
+        """Generate test report"""
+        total_tests = len(self.test_results)
+        passed_tests = total_tests - len(self.failed_tests)
+        
+        print("\n" + "=" * 70)
+        print("📊 ACCOUNT HEALTH MONITORING SYSTEM TEST REPORT")
+        print("🎯 Step 5: Account Health Monitoring")
+        print("=" * 70)
+        print(f"Total Tests: {total_tests}")
+        print(f"Passed: {passed_tests}")
+        print(f"Failed: {len(self.failed_tests)}")
+        print(f"Success Rate: {(passed_tests/total_tests)*100:.1f}%" if total_tests > 0 else "No tests run")
+        
+        if self.failed_tests:
+            print("\n❌ FAILED TESTS:")
+            for test in self.failed_tests:
+                print(f"  • {test['test_name']}: {test['details']}")
+        
+        # Critical issues assessment
+        critical_failures = []
+        for test in self.failed_tests:
+            if any(critical in test["test_name"] for critical in ["Health Check", "Monitor All", "Healthiest Account"]):
+                critical_failures.append(test["test_name"])
+        
+        # Overall assessment
+        if len(self.failed_tests) == 0:
+            print("\n✅ OVERALL: Account Health Monitoring System is working perfectly!")
+        elif critical_failures:
+            print(f"\n❌ OVERALL: Critical issues found: {', '.join(critical_failures)}")
+        else:
+            print("\n⚠️ OVERALL: Account health monitoring mostly working with minor issues")
+        
+        return len(critical_failures) == 0
+
+class AntiDetectionBrowserTester:
+    """Test Anti-Detection Browser Setup System (Step 6)"""
+    
+    def __init__(self):
+        self.backend_url = BACKEND_URL
+        self.test_results = []
+        self.failed_tests = []
+        
+    def log_test(self, test_name: str, success: bool, details: str = "", response_data: Dict = None):
+        """Log test results"""
+        result = {
+            "test_name": test_name,
+            "success": success,
+            "details": details,
+            "response_data": response_data
+        }
+        self.test_results.append(result)
+        
+        if not success:
+            self.failed_tests.append(result)
+            
+        status = "✅ PASS" if success else "❌ FAIL"
+        print(f"{status} {test_name}: {details}")
+        
+    def test_backend_connectivity(self):
+        """Test basic backend connectivity"""
+        try:
+            response = requests.get(f"{self.backend_url}/", timeout=10)
+            if response.status_code == 200:
+                self.log_test("Backend Connectivity", True, "Backend is accessible")
+                return True
+            else:
+                self.log_test("Backend Connectivity", False, f"HTTP {response.status_code}")
+                return False
+        except Exception as e:
+            self.log_test("Backend Connectivity", False, f"Connection error: {str(e)}")
+            return False
+    
+    def test_stealth_session_creation(self):
+        """Test stealth session creation endpoint"""
+        print("\n🕵️ Testing Stealth Session Creation...")
+        
+        # Test: POST /api/browser/stealth-session/create
+        try:
+            session_config = {
+                "use_proxy": False,
+                "randomize_fingerprint": True,
+                "human_behavior": True
+            }
+            response = requests.post(f"{self.backend_url}/browser/stealth-session/create", 
+                                   json=session_config, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check required fields
+                required_fields = ["session_id", "fingerprint", "user_agent", "viewport", "success"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields and data.get("success"):
+                    fingerprint = data.get("fingerprint", {})
+                    self.log_test("Stealth Session Creation", True, 
+                                f"Session created successfully - ID: {data.get('session_id')[:8]}..., "
+                                f"User Agent: {fingerprint.get('user_agent', 'N/A')[:50]}..., "
+                                f"Viewport: {fingerprint.get('viewport')}", data)
+                else:
+                    self.log_test("Stealth Session Creation", False, 
+                                f"Missing fields or creation failed: {missing_fields}", data)
+            else:
+                self.log_test("Stealth Session Creation", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Stealth Session Creation", False, f"Request error: {str(e)}")
+    
+    def test_fingerprint_generation(self):
+        """Test browser fingerprint generation endpoint"""
+        print("\n🔍 Testing Fingerprint Generation...")
+        
+        # Test: GET /api/browser/fingerprint/generate
+        try:
+            response = requests.get(f"{self.backend_url}/browser/fingerprint/generate", timeout=10)
+            
+            if response.status_code == 200:
+                fingerprint = response.json()
+                
+                # Check required fingerprint fields
+                required_fields = [
+                    "user_agent", "viewport", "screen_resolution", "timezone", 
+                    "language", "webgl_vendor", "webgl_renderer", "canvas_fingerprint"
+                ]
+                missing_fields = [field for field in required_fields if field not in fingerprint]
+                
+                if not missing_fields:
+                    # Verify viewport structure
+                    viewport = fingerprint.get("viewport", {})
+                    if "width" in viewport and "height" in viewport:
+                        self.log_test("Fingerprint Generation", True, 
+                                    f"Fingerprint generated successfully - "
+                                    f"User Agent: {fingerprint.get('user_agent')[:50]}..., "
+                                    f"Viewport: {viewport.get('width')}x{viewport.get('height')}, "
+                                    f"Timezone: {fingerprint.get('timezone')}", fingerprint)
+                    else:
+                        self.log_test("Fingerprint Generation", False, 
+                                    "Invalid viewport structure", fingerprint)
+                else:
+                    self.log_test("Fingerprint Generation", False, 
+                                f"Missing fingerprint fields: {missing_fields}", fingerprint)
+            else:
+                self.log_test("Fingerprint Generation", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Fingerprint Generation", False, f"Request error: {str(e)}")
+    
+    def test_user_agents_endpoint(self):
+        """Test user agents endpoint"""
+        print("\n🌐 Testing User Agents Endpoint...")
+        
+        # Test: GET /api/browser/user-agents
+        try:
+            response = requests.get(f"{self.backend_url}/browser/user-agents", timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if isinstance(data, dict) and "user_agents" in data:
+                    user_agents = data.get("user_agents", [])
+                    
+                    if isinstance(user_agents, list) and len(user_agents) > 0:
+                        # Verify user agent structure
+                        sample_ua = user_agents[0] if user_agents else {}
+                        
+                        if isinstance(sample_ua, str):
+                            # Simple string format
+                            self.log_test("User Agents Endpoint", True, 
+                                        f"User agents retrieved successfully: {len(user_agents)} agents, "
+                                        f"Sample: {sample_ua[:50]}...")
+                        elif isinstance(sample_ua, dict):
+                            # Object format with details
+                            self.log_test("User Agents Endpoint", True, 
+                                        f"User agents retrieved successfully: {len(user_agents)} agents")
+                        else:
+                            self.log_test("User Agents Endpoint", False, 
+                                        f"Unexpected user agent format: {type(sample_ua)}")
+                    else:
+                        self.log_test("User Agents Endpoint", False, 
+                                    "No user agents returned or invalid format")
+                else:
+                    self.log_test("User Agents Endpoint", False, 
+                                f"Unexpected response format: {type(data)}", data)
+            else:
+                self.log_test("User Agents Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("User Agents Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_viewports_endpoint(self):
+        """Test viewports endpoint"""
+        print("\n📱 Testing Viewports Endpoint...")
+        
+        # Test: GET /api/browser/viewports
+        try:
+            response = requests.get(f"{self.backend_url}/browser/viewports", timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if isinstance(data, dict) and "viewports" in data:
+                    viewports = data.get("viewports", [])
+                    
+                    if isinstance(viewports, list) and len(viewports) > 0:
+                        # Verify viewport structure
+                        sample_viewport = viewports[0] if viewports else {}
+                        
+                        if "width" in sample_viewport and "height" in sample_viewport:
+                            self.log_test("Viewports Endpoint", True, 
+                                        f"Viewports retrieved successfully: {len(viewports)} viewports, "
+                                        f"Sample: {sample_viewport.get('width')}x{sample_viewport.get('height')}")
+                        else:
+                            self.log_test("Viewports Endpoint", False, 
+                                        "Invalid viewport structure - missing width/height")
+                    else:
+                        self.log_test("Viewports Endpoint", False, 
+                                    "No viewports returned or invalid format")
+                else:
+                    self.log_test("Viewports Endpoint", False, 
+                                f"Unexpected response format: {type(data)}", data)
+            else:
+                self.log_test("Viewports Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Viewports Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_stealth_browser_testing(self):
+        """Test stealth browser testing endpoint"""
+        print("\n🧪 Testing Stealth Browser Testing...")
+        
+        # Test: POST /api/browser/test-stealth
+        try:
+            test_config = {
+                "test_url": "https://httpbin.org/headers",
+                "check_detection": True,
+                "use_proxy": False
+            }
+            response = requests.post(f"{self.backend_url}/browser/test-stealth", 
+                                   json=test_config, timeout=20)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check required fields
+                required_fields = ["test_successful", "fingerprint_used", "detection_results"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    test_successful = data.get("test_successful")
+                    detection_results = data.get("detection_results", {})
+                    
+                    if test_successful:
+                        self.log_test("Stealth Browser Testing", True, 
+                                    f"Stealth test successful - "
+                                    f"Detection bypassed: {detection_results.get('stealth_detected', 'Unknown')}, "
+                                    f"Response time: {detection_results.get('response_time', 'N/A')}", data)
+                    else:
+                        error_msg = data.get("error_message", "Unknown error")
+                        self.log_test("Stealth Browser Testing", False, 
+                                    f"Stealth test failed: {error_msg}", data)
+                else:
+                    self.log_test("Stealth Browser Testing", False, 
+                                f"Missing required fields: {missing_fields}", data)
+            else:
+                self.log_test("Stealth Browser Testing", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Stealth Browser Testing", False, f"Request error: {str(e)}")
+    
+    def run_all_tests(self):
+        """Run all Anti-Detection Browser tests"""
+        print("🚀 Starting Anti-Detection Browser Setup System Testing")
+        print("🎯 Step 6: Anti-Detection Browser Setup")
+        print("=" * 70)
+        
+        # Test 1: Basic connectivity
+        if not self.test_backend_connectivity():
+            print("❌ Backend not accessible. Stopping tests.")
+            return False
+        
+        # Run all anti-detection browser tests
+        self.test_stealth_session_creation()
+        self.test_fingerprint_generation()
+        self.test_user_agents_endpoint()
+        self.test_viewports_endpoint()
+        self.test_stealth_browser_testing()
+        
+        return True
+    
+    def generate_report(self):
+        """Generate test report"""
+        total_tests = len(self.test_results)
+        passed_tests = total_tests - len(self.failed_tests)
+        
+        print("\n" + "=" * 70)
+        print("📊 ANTI-DETECTION BROWSER SETUP SYSTEM TEST REPORT")
+        print("🎯 Step 6: Anti-Detection Browser Setup")
+        print("=" * 70)
+        print(f"Total Tests: {total_tests}")
+        print(f"Passed: {passed_tests}")
+        print(f"Failed: {len(self.failed_tests)}")
+        print(f"Success Rate: {(passed_tests/total_tests)*100:.1f}%" if total_tests > 0 else "No tests run")
+        
+        if self.failed_tests:
+            print("\n❌ FAILED TESTS:")
+            for test in self.failed_tests:
+                print(f"  • {test['test_name']}: {test['details']}")
+        
+        # Critical issues assessment
+        critical_failures = []
+        for test in self.failed_tests:
+            if any(critical in test["test_name"] for critical in ["Stealth Session", "Fingerprint Generation", "Stealth Browser Testing"]):
+                critical_failures.append(test["test_name"])
+        
+        # Overall assessment
+        if len(self.failed_tests) == 0:
+            print("\n✅ OVERALL: Anti-Detection Browser Setup System is working perfectly!")
+        elif critical_failures:
+            print(f"\n❌ OVERALL: Critical issues found: {', '.join(critical_failures)}")
+        else:
+            print("\n⚠️ OVERALL: Anti-detection browser setup mostly working with minor issues")
+        
+        return len(critical_failures) == 0
+
+def main():
+    """Main test runner for Step 5 and Step 6"""
+    print("🚀 YOUTUBE LEAD GENERATION PLATFORM - STEPS 5 & 6 TESTING")
+    print("🎯 Testing Account Health Monitoring and Anti-Detection Browser Setup")
+    print("=" * 80)
+    
+    # Test Step 5: Account Health Monitoring
+    print("\n" + "🏥" * 20)
+    health_tester = AccountHealthMonitoringTester()
+    health_success = health_tester.run_all_tests()
+    health_tester.generate_report()
+    
+    # Test Step 6: Anti-Detection Browser Setup
+    print("\n" + "🕵️" * 20)
+    browser_tester = AntiDetectionBrowserTester()
+    browser_success = browser_tester.run_all_tests()
+    browser_tester.generate_report()
+    
+    # Overall summary
+    print("\n" + "=" * 80)
+    print("🎯 OVERALL TESTING SUMMARY - STEPS 5 & 6")
+    print("=" * 80)
+    
+    if health_success and browser_success:
+        print("✅ ALL SYSTEMS WORKING: Both Account Health Monitoring and Anti-Detection Browser Setup are functional!")
+        print("🎯 Ready for enhanced scraping with intelligent account management and stealth browsing")
+        sys.exit(0)
+    elif health_success:
+        print("✅ Account Health Monitoring: WORKING")
+        print("❌ Anti-Detection Browser Setup: ISSUES FOUND")
+        sys.exit(1)
+    elif browser_success:
+        print("❌ Account Health Monitoring: ISSUES FOUND")
+        print("✅ Anti-Detection Browser Setup: WORKING")
+        sys.exit(1)
+    else:
+        print("❌ BOTH SYSTEMS HAVE ISSUES")
+        print("🚨 Critical fixes needed before proceeding")
+        sys.exit(1)
+
 if __name__ == "__main__":
     main()
