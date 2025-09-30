@@ -4900,7 +4900,8 @@ async def get_detection_statistics():
     except Exception as e:
         logger.error(f"Error getting detection statistics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        session_info = await create_enhanced_stealth_session(account_id, use_proxy=True, session_type="stealth_test")
+
+# Include the router in the main app
         
         page = session_info["page"]
         test_results = {
