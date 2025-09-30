@@ -2911,6 +2911,58 @@ def analyze_comments_for_editing(comments: List[Dict]) -> Dict:
         'top_comment': top_comment
     }
 
+def detect_channel_niche(channel_data: Dict, video_data: Dict = None) -> str:
+    """Detect channel niche from title, description and video titles"""
+    
+    # Common niche keywords mapping
+    niche_keywords = {
+        'gaming': ['gaming', 'game', 'gameplay', 'gamer', 'play', 'stream', 'twitch', 'esports', 'fps', 'rpg', 'mmorpg', 'console', 'pc gaming'],
+        'tech': ['tech', 'technology', 'review', 'unboxing', 'gadget', 'smartphone', 'laptop', 'computer', 'software', 'app', 'coding', 'programming'],
+        'lifestyle': ['lifestyle', 'vlog', 'daily', 'routine', 'life', 'personal', 'family', 'home', 'living', 'wellness', 'self-care'],
+        'fitness': ['fitness', 'workout', 'gym', 'exercise', 'training', 'health', 'muscle', 'bodybuilding', 'yoga', 'cardio'],
+        'beauty': ['beauty', 'makeup', 'skincare', 'cosmetics', 'tutorial', 'hair', 'style', 'fashion', 'outfit'],
+        'education': ['education', 'tutorial', 'learn', 'teaching', 'course', 'lesson', 'explain', 'how to', 'guide', 'tips'],
+        'business': ['business', 'entrepreneur', 'marketing', 'finance', 'money', 'investment', 'startup', 'success', 'wealth'],
+        'cooking': ['cooking', 'recipe', 'food', 'kitchen', 'chef', 'baking', 'meal', 'cuisine', 'restaurant'],
+        'travel': ['travel', 'trip', 'vacation', 'destination', 'adventure', 'explore', 'culture', 'country', 'city'],
+        'music': ['music', 'song', 'musician', 'band', 'album', 'guitar', 'piano', 'singing', 'cover', 'concert'],
+        'comedy': ['comedy', 'funny', 'humor', 'joke', 'laugh', 'entertainment', 'meme', 'parody', 'sketch'],
+        'sports': ['sports', 'football', 'basketball', 'soccer', 'tennis', 'baseball', 'hockey', 'athlete', 'training'],
+        'art': ['art', 'drawing', 'painting', 'creative', 'design', 'artist', 'craft', 'diy', 'handmade']
+    }
+    
+    # Collect text to analyze
+    text_to_analyze = []
+    
+    # Channel title and description
+    if channel_data.get('channel_title'):
+        text_to_analyze.append(channel_data['channel_title'].lower())
+    if channel_data.get('description'):
+        text_to_analyze.append(channel_data['description'].lower())
+    
+    # Latest video title if available
+    if video_data and video_data.get('title'):
+        text_to_analyze.append(video_data['title'].lower())
+        
+    # Join all text
+    combined_text = ' '.join(text_to_analyze)
+    
+    # Count keyword matches for each niche
+    niche_scores = {}
+    for niche, keywords in niche_keywords.items():
+        score = 0
+        for keyword in keywords:
+            score += combined_text.count(keyword)
+        niche_scores[niche] = score
+    
+    # Find the niche with the highest score
+    if niche_scores and max(niche_scores.values()) > 0:
+        detected_niche = max(niche_scores, key=niche_scores.get)
+        return detected_niche
+    
+    # Fallback to "content creation" if no clear niche detected
+    return "content creation"
+
 async def generate_client_outreach_email(channel_data: Dict, video_data: Dict, comment_data: Dict) -> Dict:
     """Generate personalized client outreach email using Gemini"""
     try:
