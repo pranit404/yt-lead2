@@ -270,14 +270,17 @@ metadata:
 
 test_plan:
   current_focus:
-    - "PHASE 4 STEP 9: Smart Queue Processor"
-    - "PHASE 4 STEP 10: Rate Limit & Error Recovery"
-    - "Intelligent Queue Orchestration Testing"
-    - "Error Recovery System Testing"
-    - "Health-based Account Selection Testing"
+    - "Comprehensive System Testing - All Features (Credit Budget: 9)"
+    - "Core Lead Generation Workflow"
+    - "Email Extraction & Processing"
+    - "MongoDB Database Operations"
+    - "API Endpoints Validation"
+    - "Frontend Dashboard Functionality"
+    - "Proxy Management System (Known Issues)"
+    - "Account Management & Health Monitoring"
   stuck_tasks: []
-  test_all: false
-  test_priority: "high_first"
+  test_all: true
+  test_priority: "core_features_first"
 
 agent_communication:
     -agent: "main"
