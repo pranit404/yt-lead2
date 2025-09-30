@@ -2180,6 +2180,522 @@ async def scrape_channel_about_page(channel_id: str, use_authenticated_session: 
         
         return None, None
 
+# =============================================================================
+# PHASE 3 STEP 7: AUTHENTICATED EMAIL EXTRACTION
+# =============================================================================
+
+import dns.resolver
+import socket
+from email_validator import validate_email, EmailNotValidError
+
+async def check_email_deliverability(email: str) -> dict:
+    """
+    Check email deliverability with comprehensive validation
+    Returns dict with validation status and confidence score
+    """
+    try:
+        # Basic format validation first
+        if not email or '@' not in email:
+            return {"valid": False, "reason": "Invalid format", "confidence": 0}
+        
+        domain = email.split('@')[1]
+        
+        # Check if domain has MX record
+        try:
+            mx_records = dns.resolver.resolve(domain, 'MX')
+            has_mx = len(mx_records) > 0
+        except:
+            has_mx = False
+        
+        # Check if domain is reachable
+        domain_reachable = False
+        try:
+            socket.gethostbyname(domain)
+            domain_reachable = True
+        except:
+            pass
+        
+        # Use email-validator for additional validation
+        try:
+            validation_result = validate_email(email)
+            format_valid = True
+            normalized_email = validation_result.email
+        except EmailNotValidError:
+            format_valid = False
+            normalized_email = email.lower()
+        
+        # Calculate confidence score
+        confidence = 0
+        if format_valid:
+            confidence += 30
+        if has_mx:
+            confidence += 40
+        if domain_reachable:
+            confidence += 30
+        
+        return {
+            "valid": format_valid and (has_mx or domain_reachable),
+            "normalized_email": normalized_email,
+            "has_mx_record": has_mx,
+            "domain_reachable": domain_reachable,
+            "confidence": confidence,
+            "reason": "Valid" if confidence >= 70 else "Low deliverability"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking email deliverability for {email}: {e}")
+        return {"valid": False, "reason": f"Validation error: {str(e)}", "confidence": 0}
+
+async def detect_contact_reveal_buttons(page) -> bool:
+    """
+    Detect and click YouTube 'View email address' or similar contact reveal buttons
+    Returns True if button was found and clicked
+    """
+    try:
+        # Common selectors for YouTube contact reveal buttons
+        contact_button_selectors = [
+            # Business email reveal buttons
+            "button[aria-label*='email']",
+            "button[aria-label*='contact']", 
+            "button[aria-label*='View email']",
+            "button[aria-label*='Show email']",
+            "button[aria-label*='Business email']",
+            "button[aria-label*='Show contact']",
+            
+            # Generic reveal buttons in about section
+            "button[data-target*='email']",
+            "button[onclick*='email']",
+            "yt-button-shape[aria-label*='email']",
+            "yt-button-shape[aria-label*='contact']",
+            
+            # Text-based buttons
+            "button:has-text('View email address')",
+            "button:has-text('Show email')",
+            "button:has-text('Contact')",
+            "button:has-text('Business email')",
+            
+            # Link-style contact buttons
+            "a[href*='mailto']",
+            "a[aria-label*='email']",
+            "a[aria-label*='contact']"
+        ]
+        
+        logger.info("Searching for contact reveal buttons...")
+        
+        for selector in contact_button_selectors:
+            try:
+                # Wait briefly for dynamic content
+                await page.wait_for_timeout(1000)
+                
+                # Check if button exists and is visible
+                button = await page.query_selector(selector)
+                if button:
+                    # Check if button is visible and enabled
+                    is_visible = await button.is_visible()
+                    is_enabled = await button.is_enabled()
+                    
+                    if is_visible and is_enabled:
+                        logger.info(f"Found contact button with selector: {selector}")
+                        
+                        # Simulate human behavior before clicking
+                        await simulate_human_behavior(page, (0.5, 1.5))
+                        
+                        # Scroll button into view
+                        await button.scroll_into_view_if_needed()
+                        await page.wait_for_timeout(random.randint(500, 1500))
+                        
+                        # Click the button
+                        await button.click()
+                        
+                        # Wait for potential content reveal
+                        await page.wait_for_timeout(random.randint(2000, 4000))
+                        
+                        logger.info("Successfully clicked contact reveal button")
+                        return True
+                        
+            except Exception as selector_error:
+                logger.debug(f"Selector {selector} failed: {selector_error}")
+                continue
+        
+        logger.info("No contact reveal buttons found")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error detecting contact reveal buttons: {e}")
+        return False
+
+async def extract_emails_from_video_descriptions(channel_id: str, max_videos: int = 5) -> list:
+    """
+    Extract emails from recent video descriptions using authenticated session
+    """
+    try:
+        logger.info(f"Extracting emails from video descriptions for channel: {channel_id}")
+        
+        # Get healthiest account for video scraping
+        account = await get_healthiest_available_account()
+        if not account:
+            logger.warning("No healthy account available for video description extraction")
+            return []
+        
+        session_info = await create_enhanced_stealth_session(
+            account.id, 
+            use_proxy=True, 
+            session_type="video_description_scraping"
+        )
+        
+        page = session_info["page"]
+        found_emails = []
+        
+        # Get channel's recent videos
+        videos = await get_channel_videos(channel_id, max_videos)
+        
+        if not videos:
+            logger.warning(f"No videos found for channel: {channel_id}")
+            return []
+        
+        for video in videos[:max_videos]:
+            try:
+                video_id = video.get('video_id')
+                if not video_id:
+                    continue
+                    
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+                logger.info(f"Scraping video description: {video_url}")
+                
+                await simulate_human_behavior(page, (1, 3))
+                await page.goto(video_url, wait_until="networkidle", timeout=30000)
+                await page.wait_for_timeout(random.randint(2000, 4000))
+                
+                # Expand description if needed
+                try:
+                    expand_selectors = [
+                        "button[aria-label*='Show more']",
+                        "#expand-button",
+                        "tp-yt-paper-button#expand",
+                        "yt-button-shape[aria-label*='more']"
+                    ]
+                    
+                    for selector in expand_selectors:
+                        try:
+                            expand_btn = await page.wait_for_selector(selector, timeout=2000)
+                            if expand_btn:
+                                await expand_btn.click()
+                                await page.wait_for_timeout(random.randint(1500, 3000))
+                                break
+                        except:
+                            continue
+                            
+                except Exception as expand_error:
+                    logger.debug(f"Could not expand description: {expand_error}")
+                
+                # Extract description content
+                description_selectors = [
+                    "#description-text",
+                    "#description",
+                    "ytd-video-secondary-info-renderer #description",
+                    "#meta-contents #description",
+                    "yt-formatted-string#content",
+                    "#description-inner"
+                ]
+                
+                description_text = ""
+                for selector in description_selectors:
+                    try:
+                        elements = await page.query_selector_all(selector)
+                        for element in elements:
+                            text = await element.inner_text()
+                            if text and text not in description_text:
+                                description_text += f" {text}"
+                    except:
+                        continue
+                
+                if description_text.strip():
+                    # Extract emails from description
+                    email = extract_email_from_text(description_text)
+                    if email:
+                        # Check email deliverability
+                        deliverability = await check_email_deliverability(email)
+                        
+                        email_data = {
+                            "email": email,
+                            "source": "video_description",
+                            "source_url": video_url,
+                            "video_title": video.get('title', ''),
+                            "context": description_text[:200],
+                            "deliverability": deliverability,
+                            "confidence": deliverability.get("confidence", 0) * 0.8  # 80% of deliverability confidence
+                        }
+                        
+                        found_emails.append(email_data)
+                        logger.info(f"Found email in video description: {email}")
+                
+                # Log usage
+                await log_account_usage_pattern(
+                    account.id,
+                    "video_description_scraping",
+                    True,
+                    {
+                        "video_id": video_id,
+                        "channel_id": channel_id,
+                        "description_length": len(description_text),
+                        "email_found": bool(email) if 'email' in locals() else False
+                    }
+                )
+                
+            except Exception as video_error:
+                logger.error(f"Error scraping video {video.get('video_id', 'unknown')}: {video_error}")
+                await log_account_usage_pattern(
+                    account.id,
+                    "video_description_error",
+                    False,
+                    {"error": str(video_error), "video_id": video.get('video_id')}
+                )
+                continue
+        
+        # Clean up
+        await session_info["browser"].close()
+        
+        # Remove duplicates
+        unique_emails = []
+        seen_emails = set()
+        
+        for email_data in found_emails:
+            email = email_data["email"]
+            if email not in seen_emails:
+                seen_emails.add(email)
+                unique_emails.append(email_data)
+        
+        logger.info(f"Extracted {len(unique_emails)} unique emails from video descriptions")
+        return unique_emails
+        
+    except Exception as e:
+        logger.error(f"Error extracting emails from video descriptions: {e}")
+        return []
+
+async def enhanced_authenticated_email_extraction(channel_id: str) -> dict:
+    """
+    Enhanced email extraction using authenticated sessions with contact button detection
+    and video description extraction
+    """
+    try:
+        logger.info(f"Starting enhanced authenticated email extraction for: {channel_id}")
+        
+        results = {
+            "channel_id": channel_id,
+            "emails_found": [],
+            "sources_checked": [],
+            "total_confidence": 0,
+            "best_email": None,
+            "extraction_summary": {}
+        }
+        
+        # Step 1: Enhanced about page extraction with contact button detection
+        about_email, about_content = await scrape_channel_about_page_with_contact_buttons(channel_id)
+        
+        if about_email:
+            deliverability = await check_email_deliverability(about_email)
+            email_data = {
+                "email": about_email,
+                "source": "about_page_authenticated",
+                "context": about_content[:200] if about_content else "",
+                "deliverability": deliverability,
+                "confidence": deliverability.get("confidence", 0)  # Full confidence for about page
+            }
+            results["emails_found"].append(email_data)
+            results["sources_checked"].append("about_page_authenticated")
+        
+        # Step 2: Video descriptions extraction
+        video_emails = await extract_emails_from_video_descriptions(channel_id, max_videos=5)
+        results["emails_found"].extend(video_emails)
+        if video_emails:
+            results["sources_checked"].append("video_descriptions")
+        
+        # Step 3: Calculate best email and overall confidence
+        if results["emails_found"]:
+            # Sort by confidence score
+            results["emails_found"].sort(key=lambda x: x["confidence"], reverse=True)
+            results["best_email"] = results["emails_found"][0]
+            results["total_confidence"] = max([email["confidence"] for email in results["emails_found"]])
+        
+        # Step 4: Create extraction summary
+        results["extraction_summary"] = {
+            "total_emails_found": len(results["emails_found"]),
+            "sources_checked": len(results["sources_checked"]),
+            "highest_confidence": results["total_confidence"],
+            "deliverable_emails": len([e for e in results["emails_found"] if e["deliverability"]["valid"]])
+        }
+        
+        logger.info(f"Enhanced extraction complete: {results['extraction_summary']}")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced authenticated email extraction: {e}")
+        return {
+            "channel_id": channel_id,
+            "emails_found": [],
+            "sources_checked": [],
+            "total_confidence": 0,
+            "best_email": None,
+            "extraction_summary": {"error": str(e)},
+            "error": str(e)
+        }
+
+async def scrape_channel_about_page_with_contact_buttons(channel_id: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Enhanced about page scraping with contact button detection and clicking
+    """
+    try:
+        logger.info(f"Starting enhanced about page scraping with contact detection: {channel_id}")
+        
+        # Get healthiest account for scraping
+        account = await get_healthiest_available_account()
+        if not account:
+            logger.warning("No healthy account available, falling back to anonymous scraping")
+            return await scrape_channel_about_page(channel_id, use_authenticated_session=False)
+        
+        session_info = await create_enhanced_stealth_session(
+            account.id, 
+            use_proxy=True, 
+            session_type="enhanced_about_scraping"
+        )
+        
+        page = session_info["page"]
+        
+        # Handle different channel ID formats
+        if channel_id.startswith('@'):
+            urls_to_try = [f"https://www.youtube.com/{channel_id}/about"]
+        elif channel_id.startswith('UC') and len(channel_id) == 24:
+            urls_to_try = [f"https://www.youtube.com/channel/{channel_id}/about"]
+        else:
+            urls_to_try = [
+                f"https://www.youtube.com/@{channel_id}/about",
+                f"https://www.youtube.com/channel/{channel_id}/about"
+            ]
+        
+        for about_url in urls_to_try:
+            try:
+                logger.info(f"Trying enhanced scraping: {about_url}")
+                
+                await simulate_human_behavior(page, (1, 2))
+                await page.goto(about_url, wait_until="networkidle", timeout=30000)
+                await page.wait_for_timeout(random.randint(3000, 6000))
+                
+                # First, try to detect and click contact reveal buttons
+                contact_button_clicked = await detect_contact_reveal_buttons(page)
+                
+                if contact_button_clicked:
+                    logger.info("Contact button clicked, waiting for content reveal...")
+                    await page.wait_for_timeout(random.randint(2000, 4000))
+                
+                # Expand "Show more" sections
+                try:
+                    show_more_selectors = [
+                        "button[aria-label*='more']",
+                        "button[aria-label*='Show more']", 
+                        "tp-yt-paper-button#expand",
+                        "yt-button-shape[aria-label*='more']",
+                        "#expand-button"
+                    ]
+                    
+                    for selector in show_more_selectors:
+                        try:
+                            await page.mouse.wheel(0, random.randint(100, 300))
+                            await asyncio.sleep(random.uniform(0.5, 1.5))
+                            
+                            show_more_button = await page.wait_for_selector(selector, timeout=2000)
+                            if show_more_button:
+                                await simulate_human_behavior(page, (0.5, 1.0))
+                                await show_more_button.click()
+                                await page.wait_for_timeout(random.randint(2000, 4000))
+                                logger.info(f"Expanded content with selector: {selector}")
+                                break
+                        except:
+                            continue
+                except Exception as expand_error:
+                    logger.debug(f"Could not expand show more: {expand_error}")
+                
+                # Extract content with enhanced selectors
+                content_selectors = [
+                    "div#about-description",
+                    "yt-formatted-string#description", 
+                    "div.about-stats",
+                    "div[id*='description']",
+                    "div[class*='description']",
+                    "span[class*='description']",
+                    "#content-container",
+                    "ytd-channel-about-metadata-renderer",
+                    # Enhanced selectors for contact info
+                    "div[class*='contact']",
+                    "div[class*='email']",
+                    "span[class*='contact']",
+                    "span[class*='email']",
+                    "a[href*='mailto']"
+                ]
+                
+                full_content = ""
+                
+                for selector in content_selectors:
+                    try:
+                        elements = await page.query_selector_all(selector)
+                        for element in elements:
+                            element_text = await element.inner_text()
+                            if element_text and element_text not in full_content:
+                                full_content += f" {element_text}"
+                    except:
+                        continue
+                
+                # Also check for mailto links specifically
+                try:
+                    mailto_links = await page.query_selector_all("a[href^='mailto:']")
+                    for link in mailto_links:
+                        href = await link.get_attribute("href")
+                        if href:
+                            email = href.replace("mailto:", "").split("?")[0]
+                            full_content += f" {email}"
+                except:
+                    pass
+                
+                # Get general page text as fallback
+                if not full_content.strip():
+                    full_content = await page.inner_text("body")
+                
+                cleaned_content = full_content.strip()
+                logger.info(f"Enhanced extraction - content length: {len(cleaned_content)} characters")
+                
+                if cleaned_content:
+                    email = extract_email_from_text(cleaned_content)
+                    
+                    # Log successful scraping
+                    await log_account_usage_pattern(
+                        account.id,
+                        "enhanced_about_scraping", 
+                        True,
+                        {
+                            "channel_id": channel_id,
+                            "url": about_url, 
+                            "content_length": len(cleaned_content),
+                            "email_found": bool(email),
+                            "contact_button_clicked": contact_button_clicked
+                        }
+                    )
+                    
+                    await update_account_usage(account.id, True)
+                    await session_info["browser"].close()
+                    
+                    return email, cleaned_content
+                    
+            except Exception as url_error:
+                logger.warning(f"Error scraping {about_url}: {url_error}")
+                continue
+        
+        # Clean up and return nothing if all failed
+        await session_info["browser"].close()
+        return None, None
+        
+    except Exception as e:
+        logger.error(f"Critical error in enhanced about page scraping: {e}")
+        return None, None
+
 async def get_channel_details(channel_id: str):
     """Get detailed channel information"""
     try:
