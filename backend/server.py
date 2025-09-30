@@ -4768,6 +4768,138 @@ async def comprehensive_email_detection(channel_id: str) -> dict:
             "detection_summary": {"error": str(e)},
             "error": str(e)
         }
+
+# =============================================================================
+# PHASE 3 STEP 8: ADVANCED EMAIL DETECTION API ENDPOINTS  
+# =============================================================================
+
+@api_router.post("/email/comprehensive-detection")
+async def comprehensive_email_detection_endpoint(channel_id: str):
+    """Comprehensive email detection using all available strategies"""
+    try:
+        logger.info(f"Starting comprehensive email detection for: {channel_id}")
+        
+        results = await comprehensive_email_detection(channel_id)
+        
+        return {
+            "message": "Comprehensive email detection completed",
+            "results": results,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in comprehensive detection endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/email/extract-from-comments")
+async def extract_from_comments_endpoint(channel_id: str, max_videos: int = 3):
+    """Extract emails from channel owner's comment replies"""
+    try:
+        logger.info(f"Extracting emails from channel owner comments: {channel_id}")
+        
+        if max_videos > 5:
+            max_videos = 5  # Limit for performance
+            
+        emails = await extract_emails_from_channel_comments(channel_id, max_videos)
+        
+        return {
+            "message": "Channel owner comment extraction completed",
+            "channel_id": channel_id,
+            "emails_found": emails,
+            "videos_checked": max_videos,
+            "total_emails": len(emails),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error extracting from comments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/social-media/extract-links")
+async def extract_social_media_links_endpoint(text: str):
+    """Extract social media links from provided text content"""
+    try:
+        links = await extract_social_media_links(text)
+        
+        return {
+            "message": "Social media link extraction completed",
+            "social_media_links": links,
+            "total_links": len(links),
+            "platforms_found": list(set([link["platform"] for link in links])),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error extracting social media links: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/email/calculate-confidence")
+async def calculate_confidence_endpoint(email_data: dict):
+    """Calculate confidence score for email based on source and context"""
+    try:
+        confidence = calculate_email_confidence_score(email_data)
+        
+        return {
+            "message": "Confidence score calculated",
+            "email": email_data.get("email"),
+            "confidence_score": confidence,
+            "confidence_level": (
+                "high" if confidence >= 80 else
+                "medium" if confidence >= 50 else
+                "low"
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating confidence: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/email/detection-stats")
+async def get_detection_statistics():
+    """Get overall email detection statistics from database"""
+    try:
+        # Get statistics from main_leads and no_email_leads collections
+        main_leads_count = await db.main_leads.count_documents({})
+        no_email_leads_count = await db.no_email_leads.count_documents({})
+        
+        # Email success rate
+        total_leads = main_leads_count + no_email_leads_count
+        success_rate = (main_leads_count / total_leads * 100) if total_leads > 0 else 0
+        
+        # Get recent extractions with confidence scores
+        recent_leads = await db.main_leads.find(
+            {"email": {"$exists": True, "$ne": None}},
+            {"email": 1, "extraction_method": 1, "confidence_score": 1, "processing_timestamp": 1}
+        ).sort("processing_timestamp", -1).limit(100).to_list(length=100)
+        
+        # Calculate confidence distribution
+        confidence_distribution = {"high": 0, "medium": 0, "low": 0}
+        for lead in recent_leads:
+            confidence = lead.get("confidence_score", 0)
+            if confidence >= 80:
+                confidence_distribution["high"] += 1
+            elif confidence >= 50:
+                confidence_distribution["medium"] += 1
+            else:
+                confidence_distribution["low"] += 1
+        
+        return {
+            "message": "Detection statistics retrieved",
+            "statistics": {
+                "total_leads_processed": total_leads,
+                "emails_found": main_leads_count,
+                "no_emails_found": no_email_leads_count,
+                "success_rate_percentage": round(success_rate, 2),
+                "confidence_distribution": confidence_distribution,
+                "recent_extractions": len(recent_leads)
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting detection statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
         session_info = await create_enhanced_stealth_session(account_id, use_proxy=True, session_type="stealth_test")
         
         page = session_info["page"]
