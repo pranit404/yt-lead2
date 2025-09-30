@@ -36,6 +36,8 @@ import bcrypt
 import jwt
 from passlib.context import CryptContext
 from twocaptcha import TwoCaptcha
+import random
+import secrets
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
