@@ -4372,8 +4372,37 @@ async def test_email_extraction_get(channel_id: str):
         }
 
 @api_router.post("/debug/test-text-email-extraction") 
-async def test_text_email_extraction(text: str):
+async def test_text_email_extraction(request: dict):
     """Debug endpoint to test email extraction from raw text"""
+    try:
+        # Extract text from request body
+        text = request.get("text")
+        if not text:
+            return {
+                "input_text": None,
+                "email_found": None,
+                "error": "text is required in request body",
+                "success": False
+            }
+            
+        email = extract_email_from_text(text)
+        return {
+            "input_text": text,
+            "email_found": email,
+            "success": True
+        }
+    except Exception as e:
+        text = request.get("text") if isinstance(request, dict) else "unknown"
+        return {
+            "input_text": text,
+            "email_found": None,
+            "error": str(e),
+            "success": False
+        }
+
+@api_router.get("/debug/test-text-email-extraction") 
+async def test_text_email_extraction_get(text: str):
+    """Debug endpoint to test email extraction from raw text (GET version)"""
     try:
         email = extract_email_from_text(text)
         return {
