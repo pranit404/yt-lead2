@@ -625,6 +625,276 @@ function App() {
             )}
           </div>
         )}
+
+        {selectedTab === 'monitoring' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                📊 Performance Monitoring Dashboard
+              </h2>
+              <button
+                onClick={loadPerformanceMetrics}
+                disabled={monitoringLoading}
+                className="px-4 py-2 text-purple-600 hover:text-purple-800 font-medium disabled:opacity-50"
+              >
+                {monitoringLoading ? '🔄 Loading...' : '🔄 Refresh'}
+              </button>
+            </div>
+
+            {monitoringLoading && !performanceMetrics && (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <div className="text-4xl mb-4">⏳</div>
+                <p className="text-gray-500 text-lg">Loading performance metrics...</p>
+              </div>
+            )}
+
+            {performanceMetrics && (
+              <div className="space-y-6">
+                {/* System Overview Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-center">
+                      <div className="text-2xl mr-3">🎯</div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Success Rate</p>
+                        <p className="text-2xl font-bold text-green-600">
+                          {performanceMetrics.system_performance?.overall_success_rate?.toFixed(1) || 0}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-center">
+                      <div className="text-2xl mr-3">👥</div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Active Accounts</p>
+                        <p className="text-2xl font-bold text-blue-600">
+                          {performanceMetrics.system_performance?.active_accounts || 0}/
+                          {performanceMetrics.system_performance?.total_accounts || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-center">
+                      <div className="text-2xl mr-3">🔗</div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Healthy Proxies</p>
+                        <p className="text-2xl font-bold text-purple-600">
+                          {performanceMetrics.system_performance?.healthy_proxies || 0}/
+                          {performanceMetrics.system_performance?.total_proxies || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-center">
+                      <div className="text-2xl mr-3">⚡</div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">Reliability Score</p>
+                        <p className={`text-2xl font-bold ${
+                          (performanceMetrics.reliability_metrics?.overall_reliability_score || 0) >= 85 
+                            ? 'text-green-600' : 'text-orange-600'
+                        }`}>
+                          {performanceMetrics.reliability_metrics?.overall_reliability_score?.toFixed(1) || 0}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Alerts Section */}
+                {performanceMetrics.alerts && performanceMetrics.alerts.length > 0 && (
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                      🚨 Active Alerts ({performanceMetrics.alerts.length})
+                    </h3>
+                    <div className="space-y-3">
+                      {performanceMetrics.alerts.map((alert, index) => (
+                        <div
+                          key={index}
+                          className={`p-4 rounded-lg border-l-4 ${
+                            alert.severity === 'high' 
+                              ? 'bg-red-50 border-red-500 text-red-700'
+                              : alert.severity === 'medium'
+                              ? 'bg-orange-50 border-orange-500 text-orange-700'
+                              : 'bg-yellow-50 border-yellow-500 text-yellow-700'
+                          }`}
+                        >
+                          <div className="flex">
+                            <div className="text-lg mr-2">
+                              {alert.severity === 'high' ? '🔴' : alert.severity === 'medium' ? '🟡' : 'ℹ️'}
+                            </div>
+                            <div>
+                              <p className="font-medium">{alert.message}</p>
+                              <p className="text-sm opacity-75 mt-1">
+                                Severity: {alert.severity} • {new Date(alert.timestamp).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Cost Tracking */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    💰 Cost Tracking & API Usage
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="text-center p-4 bg-blue-50 rounded-lg">
+                      <p className="text-2xl font-bold text-blue-600">
+                        {performanceMetrics.cost_tracking?.api_requests_last_24h || 0}
+                      </p>
+                      <p className="text-sm text-blue-700">API Requests (24h)</p>
+                    </div>
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <p className="text-2xl font-bold text-green-600">
+                        {((performanceMetrics.cost_tracking?.avg_processing_time_ms || 0) / 1000).toFixed(1)}s
+                      </p>
+                      <p className="text-sm text-green-700">Avg Processing Time</p>
+                    </div>
+                    <div className="text-center p-4 bg-purple-50 rounded-lg">
+                      <p className="text-2xl font-bold text-purple-600">
+                        ${(performanceMetrics.cost_tracking?.total_processing_cost_estimate || 0).toFixed(3)}
+                      </p>
+                      <p className="text-sm text-purple-700">Estimated Daily Cost</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Account Performance */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    👥 Account Performance
+                  </h3>
+                  
+                  {performanceMetrics.account_performance?.top_performing && 
+                   performanceMetrics.account_performance.top_performing.length > 0 ? (
+                    <div className="space-y-3">
+                      <h4 className="font-medium text-gray-700">Top Performing Accounts</h4>
+                      {performanceMetrics.account_performance.top_performing.slice(0, 5).map((account, index) => (
+                        <div key={account.account_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center">
+                            <div className={`w-2 h-2 rounded-full mr-3 ${
+                              account.status === 'active' ? 'bg-green-400' : 'bg-red-400'
+                            }`}></div>
+                            <div>
+                              <p className="font-medium text-gray-900">{account.email}</p>
+                              <p className="text-sm text-gray-500">
+                                {account.total_requests} total requests • Last used: {
+                                  account.last_used ? new Date(account.last_used).toLocaleDateString() : 'Never'
+                                }
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className={`font-bold ${account.success_rate >= 80 ? 'text-green-600' : 'text-orange-600'}`}>
+                              {account.success_rate}%
+                            </p>
+                            <p className="text-xs text-gray-500">Success Rate</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-center py-4">No account data available yet. Run some processing to see metrics.</p>
+                  )}
+                </div>
+
+                {/* Proxy Performance */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    🔗 Proxy Performance
+                  </h3>
+                  
+                  {performanceMetrics.proxy_performance?.fastest_proxies && 
+                   performanceMetrics.proxy_performance.fastest_proxies.length > 0 ? (
+                    <div className="space-y-3">
+                      <h4 className="font-medium text-gray-700">Fastest Proxies</h4>
+                      {performanceMetrics.proxy_performance.fastest_proxies.slice(0, 5).map((proxy, index) => (
+                        <div key={proxy.proxy_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center">
+                            <div className={`w-2 h-2 rounded-full mr-3 ${
+                              proxy.health_status === 'healthy' ? 'bg-green-400' : 'bg-red-400'
+                            }`}></div>
+                            <div>
+                              <p className="font-medium text-gray-900">{proxy.ip}:{proxy.port}</p>
+                              <p className="text-sm text-gray-500">
+                                {proxy.location} • {proxy.total_requests} requests
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-blue-600">{proxy.avg_response_time}ms</p>
+                            <p className="text-xs text-gray-500">{proxy.success_rate}% success</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-center py-4">No proxy data available yet. Add and test some proxies to see metrics.</p>
+                  )}
+                </div>
+
+                {/* System Status */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    ⚙️ System Status
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <p className="text-lg font-semibold text-gray-900">
+                        {performanceMetrics.reliability_metrics?.system_stability || 'Unknown'}
+                      </p>
+                      <p className="text-sm text-gray-500">System Stability</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-semibold text-gray-900">
+                        {performanceMetrics.reliability_metrics?.availability_percentage?.toFixed(1) || 0}%
+                      </p>
+                      <p className="text-sm text-gray-500">Availability</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-semibold text-gray-900">
+                        {performanceMetrics.reliability_metrics?.mtbf_hours || 0}h
+                      </p>
+                      <p className="text-sm text-gray-500">MTBF (Hours)</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-semibold text-gray-900">
+                        {performanceMetrics.reliability_metrics?.mttr_minutes || 0}m
+                      </p>
+                      <p className="text-sm text-gray-500">MTTR (Minutes)</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Last Updated */}
+                <div className="text-center text-sm text-gray-500">
+                  Last updated: {performanceMetrics.timestamp ? new Date(performanceMetrics.timestamp).toLocaleString() : 'Unknown'}
+                  <br />
+                  <span className="text-xs">🔄 Auto-refreshes every 30 seconds</span>
+                </div>
+              </div>
+            )}
+
+            {!performanceMetrics && !monitoringLoading && (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <div className="text-6xl mb-4">📊</div>
+                <p className="text-gray-500 text-lg">No monitoring data available</p>
+                <p className="text-sm text-gray-400 mt-2">
+                  Click refresh to load performance metrics or start processing some requests to generate data.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </main>
       
       {/* Footer */}
