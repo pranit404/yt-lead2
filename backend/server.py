@@ -3285,45 +3285,286 @@ async def cleanup_old_queue_requests():
     except Exception as e:
         logger.error(f"Error cleaning up old queue requests: {e}")
 
-async def process_queue_batch():
-    """Process multiple queue requests in batch (basic processor structure)"""
+async def get_healthiest_account_for_queue():
+    """Get the healthiest available account for queue processing using health scoring"""
     try:
-        logger.info("Starting batch queue processing...")
+        # Find accounts that are not banned, rate limited, or in cooldown
+        current_time = datetime.now(timezone.utc)
         
-        # Get available accounts
+        accounts_cursor = db.youtube_accounts.find({
+            "status": {"$nin": ["banned", "rate_limited"]},
+            "$or": [
+                {"cooldown_until": {"$exists": False}},
+                {"cooldown_until": {"$lte": current_time}}
+            ]
+        })
+        
         available_accounts = []
-        accounts_cursor = db.youtube_accounts.find({"status": "active"})
         async for account in accounts_cursor:
             if not await is_account_rate_limited(account["id"]):
-                available_accounts.append(account["id"])
+                # Calculate health score for account selection
+                health_data = await get_account_health_score(account["id"])
+                health_score = health_data.get("health_score", 0)
+                
+                available_accounts.append({
+                    "id": account["id"],
+                    "health_score": health_score,
+                    "last_used": account.get("last_used"),
+                    "success_rate": account.get("success_rate", 100)
+                })
         
         if not available_accounts:
-            logger.info("No available accounts for queue processing")
-            return
+            return None
         
-        # Process requests up to concurrent limit
+        # Sort by health score (highest first), then by least recently used
+        available_accounts.sort(key=lambda x: (
+            -x["health_score"],  # Highest health score first
+            x["last_used"] or datetime.min.replace(tzinfo=timezone.utc)  # Least recently used
+        ))
+        
+        return available_accounts[0]["id"]
+        
+    except Exception as e:
+        logger.error(f"Error getting healthiest account: {e}")
+        return None
+
+async def smart_queue_processor():
+    """Intelligent queue processor with account selection, proxy assignment, and error handling"""
+    try:
+        logger.info("🧠 Starting smart queue processing...")
+        
+        # Check if processing is already at capacity
         concurrent_processing = await db.scraping_queue.count_documents({"status": "processing"})
         available_slots = MAX_CONCURRENT_PROCESSING - concurrent_processing
         
         if available_slots <= 0:
-            logger.info("Maximum concurrent processing limit reached")
-            return
+            logger.info("⏸️ Maximum concurrent processing limit reached")
+            return {"processed": 0, "message": "At capacity"}
         
-        processed_count = 0
-        for account_id in available_accounts[:available_slots]:
-            request = await get_next_queue_request(account_id)
-            if request:
-                logger.info(f"Processing queue request {request.id} with account {account_id}")
-                # TODO: Implement actual processing logic here
-                # This is a placeholder for the actual scraping/extraction logic
-                processed_count += 1
+        processed_requests = []
         
-        if processed_count > 0:
-            logger.info(f"Started processing {processed_count} queue requests")
-            await send_discord_notification(f"🔄 **Queue Processing Started**\n📊 Processing {processed_count} requests")
+        for slot in range(available_slots):
+            # Get healthiest available account
+            account_id = await get_healthiest_account_for_queue()
+            if not account_id:
+                logger.info("❌ No healthy accounts available for processing")
+                break
+            
+            # Get next high priority request
+            queue_request = await get_next_priority_queue_request(account_id)
+            if not queue_request:
+                logger.info(f"📭 No pending requests for account {account_id}")
+                continue
+            
+            # Assign proxy to request
+            proxy = await get_available_proxy()
+            proxy_id = proxy.get("id") if proxy else None
+            
+            # Process the request with full orchestration
+            processing_result = await process_queue_request_with_orchestration(
+                queue_request.id, account_id, proxy_id
+            )
+            
+            if processing_result["success"]:
+                processed_requests.append({
+                    "request_id": queue_request.id,
+                    "account_id": account_id,
+                    "proxy_id": proxy_id,
+                    "channel_id": queue_request.channel_id
+                })
+                logger.info(f"✅ Successfully processed request {queue_request.id}")
+            else:
+                logger.error(f"❌ Failed to process request {queue_request.id}: {processing_result['error']}")
+        
+        # Send summary notification
+        if processed_requests:
+            summary = f"🚀 **Smart Queue Processor Results**\n"
+            summary += f"📊 Processed: {len(processed_requests)} requests\n"
+            summary += f"🏥 Health-based account selection\n"
+            summary += f"🎯 Priority-based request handling\n"
+            summary += f"🔄 Proxy assignment integrated"
+            
+            await send_discord_notification(summary)
+            logger.info(f"🎉 Smart queue processing completed: {len(processed_requests)} requests")
+        
+        return {
+            "processed": len(processed_requests),
+            "requests": processed_requests,
+            "available_slots": available_slots
+        }
         
     except Exception as e:
-        logger.error(f"Error in batch queue processing: {e}")
+        logger.error(f"💥 Error in smart queue processor: {e}")
+        await send_discord_notification(f"⚠️ **Queue Processing Error**\n❌ {str(e)}")
+        return {"processed": 0, "error": str(e)}
+
+async def get_next_priority_queue_request(account_id: str = None):
+    """Get next queue request with intelligent priority handling"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Build query for available requests
+        query = {
+            "status": "pending",
+            "scheduled_time": {"$lte": current_time},
+            "attempts": {"$lt": QUEUE_RETRY_ATTEMPTS}
+        }
+        
+        if account_id:
+            # Check rate limits for this account
+            if await is_account_rate_limited(account_id):
+                logger.info(f"Account {account_id} is rate limited, skipping priority queue processing")
+                return None
+        
+        # Priority order: premium channels first, then by scheduled time
+        requests_cursor = db.scraping_queue.find(query).sort([
+            ("priority", -1),  # Higher priority first (premium = 3, high = 2, medium = 1, low = 0)
+            ("scheduled_time", 1)  # Earlier scheduled time first
+        ]).limit(1)
+        
+        request_doc = await requests_cursor.to_list(length=1)
+        if not request_doc:
+            return None
+        
+        request = request_doc[0]
+        
+        # Assign account and mark as processing
+        await db.scraping_queue.update_one(
+            {"id": request["id"]},
+            {
+                "$set": {
+                    "status": "processing",
+                    "account_id": account_id,
+                    "processing_started": current_time,
+                    "attempts": request.get("attempts", 0) + 1
+                }
+            }
+        )
+        
+        logger.info(f"🎯 Assigned priority queue request {request['id']} for processing by account {account_id}")
+        return type('QueueRequest', (), request)()
+        
+    except Exception as e:
+        logger.error(f"Error getting next priority queue request: {e}")
+        return None
+
+async def process_queue_request_with_orchestration(request_id: str, account_id: str, proxy_id: str = None):
+    """Process a queue request with full orchestration including error handling and recovery"""
+    try:
+        logger.info(f"🔄 Processing request {request_id} with account {account_id}")
+        
+        # Get request details
+        request_doc = await db.scraping_queue.find_one({"id": request_id})
+        if not request_doc:
+            return {"success": False, "error": "Request not found"}
+        
+        channel_id = request_doc.get("channel_id")
+        request_type = request_doc.get("request_type", "email_extraction")
+        
+        # Track processing start
+        processing_start = datetime.now(timezone.utc)
+        await db.scraping_queue.update_one(
+            {"id": request_id},
+            {"$set": {"processing_started": processing_start}}
+        )
+        
+        processing_result = None
+        
+        if request_type == "email_extraction":
+            # Extract email with anti-detection and proxy support
+            processing_result = await extract_email_with_full_orchestration(
+                channel_id, account_id, proxy_id
+            )
+        
+        # Handle processing result
+        if processing_result and processing_result.get("success"):
+            # Mark request as completed
+            await complete_queue_request(request_id, {
+                "result": processing_result,
+                "account_id": account_id,
+                "proxy_id": proxy_id,
+                "processing_duration": (datetime.now(timezone.utc) - processing_start).total_seconds()
+            })
+            
+            # Update account success metrics
+            await update_account_success_metrics(account_id, True)
+            
+            return {"success": True, "result": processing_result}
+        else:
+            # Handle failure with intelligent retry logic
+            error_message = processing_result.get("error", "Unknown error") if processing_result else "Processing failed"
+            
+            retry_result = await handle_queue_request_failure(
+                request_id, account_id, proxy_id, error_message
+            )
+            
+            # Update account failure metrics
+            await update_account_success_metrics(account_id, False)
+            
+            return {"success": False, "error": error_message, "retry_scheduled": retry_result}
+    
+    except Exception as e:
+        logger.error(f"Error in orchestrated queue processing: {e}")
+        
+        # Handle unexpected errors
+        await handle_queue_request_failure(request_id, account_id, proxy_id, str(e))
+        await update_account_success_metrics(account_id, False)
+        
+        return {"success": False, "error": str(e)}
+
+async def extract_email_with_full_orchestration(channel_id: str, account_id: str, proxy_id: str = None):
+    """Extract email using full orchestration: stealth browser, authenticated session, proxy"""
+    try:
+        logger.info(f"🔍 Extracting email for channel {channel_id} with full orchestration")
+        
+        # Get authenticated session for account
+        session_data = await get_authenticated_session(account_id)
+        authenticated = session_data.get("success", False)
+        
+        # Get proxy configuration if provided
+        proxy_config = None
+        if proxy_id:
+            proxy_data = await db.proxy_pool.find_one({"id": proxy_id})
+            if proxy_data and proxy_data.get("status") == "active":
+                proxy_config = {
+                    "server": f"{proxy_data['protocol']}://{proxy_data['ip']}:{proxy_data['port']}",
+                    "username": proxy_data.get("username"),
+                    "password": proxy_data.get("password")
+                }
+        
+        # Create stealth browser context
+        stealth_context = await create_stealth_browser_context(proxy_config)
+        
+        # Extract email using enhanced scraping
+        extraction_result = await scrape_channel_about_page(
+            channel_id, 
+            stealth_context,
+            authenticated_cookies=session_data.get("cookies") if authenticated else None
+        )
+        
+        if extraction_result.get("email"):
+            logger.info(f"✅ Successfully extracted email for channel {channel_id}")
+            
+            # Store in appropriate collection
+            if extraction_result["email"]:
+                await store_lead_with_email(channel_id, extraction_result)
+            else:
+                await store_lead_without_email(channel_id, extraction_result)
+            
+            return {"success": True, "email": extraction_result.get("email"), "method": "full_orchestration"}
+        else:
+            logger.info(f"❌ No email found for channel {channel_id}")
+            await store_lead_without_email(channel_id, extraction_result)
+            return {"success": True, "email": None, "method": "full_orchestration"}
+    
+    except Exception as e:
+        logger.error(f"Error in full orchestration email extraction: {e}")
+        return {"success": False, "error": str(e)}
+
+# Legacy function for backward compatibility
+async def process_queue_batch():
+    """Legacy batch processor - redirects to smart processor"""
+    return await smart_queue_processor()
 
 # API Routes
 @api_router.post("/lead-generation/start", response_model=ProcessingStatus)
