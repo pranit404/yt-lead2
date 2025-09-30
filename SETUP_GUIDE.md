@@ -158,7 +158,7 @@ Example:
 
 ### **Access:** 
 - Local: `http://localhost:3000`
-- Production: `https://youtube-login.preview.emergentagent.com`
+- Production: `https://captcha-fallback.preview.emergentagent.com`
 
 ---
 
