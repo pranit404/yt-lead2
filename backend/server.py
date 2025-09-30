@@ -4903,13 +4903,6 @@ async def get_detection_statistics():
 
 # Include the router in the main app
 app.include_router(api_router)
-        test_results = {
-            "account_id": account_id,
-            "session_id": session_info["session_id"],
-            "tests": {},
-            "overall_score": 0,
-            "stealth_level": "unknown"
-        }
         
         try:
             # Test 1: Bot detection test
