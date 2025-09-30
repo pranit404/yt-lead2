@@ -158,7 +158,7 @@ Example:
 
 ### **Access:** 
 - Local: `http://localhost:3000`
-- Production: `https://ai-tuner.preview.emergentagent.com`
+- Production: `https://youtube-outreach.preview.emergentagent.com`
 
 ---
 
