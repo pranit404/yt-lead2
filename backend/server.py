@@ -5455,6 +5455,304 @@ async def start_smart_queue_processing():
         logger.error(f"Error starting smart queue processing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ===============================================
+# PHASE 5 STEP 11: PERFORMANCE MONITORING DASHBOARD
+# ===============================================
+
+async def get_comprehensive_performance_metrics() -> Dict[str, Any]:
+    """Get comprehensive performance metrics for dashboard"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Time ranges for analysis
+        last_hour = current_time - timedelta(hours=1)
+        last_24h = current_time - timedelta(hours=24)
+        last_7days = current_time - timedelta(days=7)
+        
+        metrics = {
+            "timestamp": current_time,
+            "system_performance": {},
+            "account_performance": {},
+            "proxy_performance": {},
+            "queue_performance": {},
+            "cost_tracking": {},
+            "reliability_metrics": {},
+            "alerts": []
+        }
+        
+        # System Performance Metrics
+        total_accounts = await db.youtube_accounts.count_documents({})
+        active_accounts = await db.youtube_accounts.count_documents({"status": "active"})
+        total_proxies = await db.proxy_pool.count_documents({})
+        healthy_proxies = await db.proxy_pool.count_documents({
+            "status": "active", 
+            "health_status": "healthy"
+        })
+        
+        # Queue performance
+        total_requests = await db.scraping_queue.count_documents({})
+        completed_requests = await db.scraping_queue.count_documents({"status": "completed"})
+        failed_requests = await db.scraping_queue.count_documents({"status": "failed"})
+        
+        # Success rate calculation
+        success_rate = (completed_requests / total_requests * 100) if total_requests > 0 else 0
+        
+        metrics["system_performance"] = {
+            "total_accounts": total_accounts,
+            "active_accounts": active_accounts,
+            "account_availability_rate": (active_accounts / total_accounts * 100) if total_accounts > 0 else 0,
+            "total_proxies": total_proxies,
+            "healthy_proxies": healthy_proxies,
+            "proxy_health_rate": (healthy_proxies / total_proxies * 100) if total_proxies > 0 else 0,
+            "overall_success_rate": success_rate,
+            "total_processed": completed_requests,
+            "system_uptime": "99.9%"  # Placeholder - can be calculated based on service logs
+        }
+        
+        # Account Performance Analysis
+        account_metrics = []
+        accounts_cursor = db.youtube_accounts.find({})
+        async for account in accounts_cursor:
+            # Calculate account-specific success rate
+            account_total = await db.scraping_queue.count_documents({"account_id": account["id"]})
+            account_success = await db.scraping_queue.count_documents({
+                "account_id": account["id"], 
+                "status": "completed"
+            })
+            account_success_rate = (account_success / account_total * 100) if account_total > 0 else 0
+            
+            # Recent activity
+            recent_activity = await db.scraping_queue.count_documents({
+                "account_id": account["id"],
+                "processing_started_at": {"$gte": last_24h}
+            })
+            
+            account_metrics.append({
+                "account_id": account["id"],
+                "email": account["email"],
+                "status": account["status"],
+                "success_rate": round(account_success_rate, 2),
+                "total_requests": account_total,
+                "recent_activity_24h": recent_activity,
+                "last_used": account.get("last_used")
+            })
+        
+        metrics["account_performance"] = {
+            "accounts": account_metrics,
+            "top_performing": sorted(account_metrics, key=lambda x: x["success_rate"], reverse=True)[:5],
+            "needs_attention": [acc for acc in account_metrics if acc["success_rate"] < 70]
+        }
+        
+        # Proxy Performance Analysis  
+        proxy_metrics = []
+        proxies_cursor = db.proxy_pool.find({})
+        async for proxy in proxies_cursor:
+            # Calculate proxy success rate
+            proxy_requests = await db.scraping_queue.count_documents({"proxy_id": proxy["id"]})
+            proxy_success = await db.scraping_queue.count_documents({
+                "proxy_id": proxy["id"],
+                "status": "completed"
+            })
+            proxy_success_rate = (proxy_success / proxy_requests * 100) if proxy_requests > 0 else 0
+            
+            proxy_metrics.append({
+                "proxy_id": proxy["id"],
+                "ip": proxy["ip"],
+                "port": proxy["port"],
+                "status": proxy["status"],
+                "health_status": proxy["health_status"],
+                "success_rate": round(proxy_success_rate, 2),
+                "avg_response_time": proxy.get("response_time_avg", 0),
+                "total_requests": proxy_requests,
+                "location": proxy.get("location", "Unknown")
+            })
+            
+        metrics["proxy_performance"] = {
+            "proxies": proxy_metrics,
+            "fastest_proxies": sorted(proxy_metrics, key=lambda x: x["avg_response_time"])[:5],
+            "most_reliable": sorted(proxy_metrics, key=lambda x: x["success_rate"], reverse=True)[:5]
+        }
+        
+        # API Usage & Processing Time Tracking
+        # Calculate average processing times
+        pipeline = [
+            {"$match": {
+                "status": "completed",
+                "processing_started_at": {"$exists": True},
+                "completed_at": {"$exists": True}
+            }},
+            {"$project": {
+                "processing_duration": {
+                    "$subtract": ["$completed_at", "$processing_started_at"]
+                }
+            }},
+            {"$group": {
+                "_id": None,
+                "avg_processing_time": {"$avg": "$processing_duration"},
+                "min_processing_time": {"$min": "$processing_duration"},
+                "max_processing_time": {"$max": "$processing_duration"},
+                "total_requests": {"$sum": 1}
+            }}
+        ]
+        
+        processing_stats = await db.scraping_queue.aggregate(pipeline).to_list(1)
+        processing_data = processing_stats[0] if processing_stats else {}
+        
+        # API usage metrics
+        api_usage_last_hour = await db.scraping_queue.count_documents({
+            "processing_started_at": {"$gte": last_hour}
+        })
+        api_usage_last_24h = await db.scraping_queue.count_documents({
+            "processing_started_at": {"$gte": last_24h}
+        })
+        
+        metrics["cost_tracking"] = {
+            "api_requests_last_hour": api_usage_last_hour,
+            "api_requests_last_24h": api_usage_last_24h,
+            "avg_processing_time_ms": processing_data.get("avg_processing_time", 0),
+            "min_processing_time_ms": processing_data.get("min_processing_time", 0),
+            "max_processing_time_ms": processing_data.get("max_processing_time", 0),
+            "total_processing_cost_estimate": api_usage_last_24h * 0.001,  # Example cost calculation
+            "proxy_cost_estimate": len(proxy_metrics) * 5.0,  # Example: $5 per proxy per day
+            "captcha_solve_cost": 0  # To be calculated based on 2captcha usage
+        }
+        
+        # Reliability Metrics
+        reliability_threshold = 85.0  # 85% success rate threshold
+        
+        # Error analysis
+        recent_errors = await db.scraping_queue.count_documents({
+            "status": "failed",
+            "completed_at": {"$gte": last_24h}
+        })
+        
+        reliability_score = max(0, 100 - (recent_errors / max(api_usage_last_24h, 1) * 100))
+        
+        metrics["reliability_metrics"] = {
+            "overall_reliability_score": round(reliability_score, 2),
+            "error_rate_24h": round((recent_errors / max(api_usage_last_24h, 1) * 100), 2),
+            "availability_percentage": round((active_accounts / max(total_accounts, 1) * 100), 2),
+            "system_stability": "Stable" if reliability_score > reliability_threshold else "Needs Attention",
+            "mtbf_hours": 24.0,  # Mean Time Between Failures - placeholder
+            "mttr_minutes": 15.0  # Mean Time To Recovery - placeholder
+        }
+        
+        # Alert Generation
+        alerts = []
+        
+        # System health alerts
+        if success_rate < 70:
+            alerts.append({
+                "type": "error",
+                "message": f"Low success rate: {success_rate:.1f}% (threshold: 70%)",
+                "timestamp": current_time,
+                "severity": "high"
+            })
+            
+        if active_accounts < total_accounts * 0.5:
+            alerts.append({
+                "type": "warning", 
+                "message": f"Low account availability: {active_accounts}/{total_accounts} accounts active",
+                "timestamp": current_time,
+                "severity": "medium"
+            })
+            
+        if healthy_proxies < total_proxies * 0.3:
+            alerts.append({
+                "type": "error",
+                "message": f"Critical proxy shortage: {healthy_proxies}/{total_proxies} proxies healthy",
+                "timestamp": current_time,
+                "severity": "high"
+            })
+            
+        # Performance alerts
+        if processing_data.get("avg_processing_time", 0) > 30000:  # 30 seconds
+            alerts.append({
+                "type": "warning",
+                "message": f"Slow processing detected: {processing_data.get('avg_processing_time', 0)/1000:.1f}s average",
+                "timestamp": current_time,
+                "severity": "medium"
+            })
+            
+        metrics["alerts"] = alerts
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return {"error": str(e), "timestamp": datetime.now(timezone.utc)}
+
+@api_router.get("/monitoring/performance-dashboard")
+async def get_performance_dashboard():
+    """Get comprehensive performance dashboard data"""
+    try:
+        dashboard_data = await get_comprehensive_performance_metrics()
+        return dashboard_data
+    except Exception as e:
+        logger.error(f"Error getting performance dashboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def send_performance_alert(alert: Dict[str, Any]):
+    """Send performance alert to Discord"""
+    try:
+        if not DISCORD_WEBHOOK_URL:
+            return
+            
+        severity_colors = {
+            "high": 0xFF0000,    # Red
+            "medium": 0xFFA500,  # Orange  
+            "low": 0xFFFF00      # Yellow
+        }
+        
+        severity_emojis = {
+            "high": "🚨",
+            "medium": "⚠️", 
+            "low": "ℹ️"
+        }
+        
+        embed = {
+            "title": f"{severity_emojis.get(alert['severity'], '📊')} System Alert - {alert['type'].title()}",
+            "description": alert['message'],
+            "color": severity_colors.get(alert['severity'], 0x0099FF),
+            "timestamp": alert['timestamp'].isoformat(),
+            "fields": [
+                {
+                    "name": "Severity",
+                    "value": alert['severity'].title(),
+                    "inline": True
+                },
+                {
+                    "name": "System",
+                    "value": "YouTube Lead Generation",
+                    "inline": True
+                }
+            ]
+        }
+        
+        payload = {
+            "embeds": [embed]
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(DISCORD_WEBHOOK_URL, json=payload) as response:
+                if response.status == 200:
+                    logger.info(f"✅ Alert sent to Discord: {alert['message']}")
+                else:
+                    logger.error(f"❌ Failed to send alert to Discord: {response.status}")
+                    
+    except Exception as e:
+        logger.error(f"Error sending performance alert: {e}")
+
+@api_router.get("/monitoring/alerts/current")
+async def get_current_alerts():
+    """Get current system alerts"""
+    try:
+        metrics = await get_comprehensive_performance_metrics()
+        return {"alerts": metrics.get("alerts", [])}
+    except Exception as e:
+        logger.error(f"Error getting current alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/queue/processing-status")
 async def get_queue_processing_status():
     """Get detailed queue processing status and metrics"""
