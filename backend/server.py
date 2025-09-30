@@ -4303,8 +4303,49 @@ async def root():
     return {"message": "YouTube Lead Generation Platform API"}
 
 @api_router.post("/debug/test-email-extraction")
-async def test_email_extraction(channel_id: str):
+async def test_email_extraction(request: dict):
     """Debug endpoint to test email extraction for a specific channel"""
+    try:
+        # Extract channel_id from request body
+        channel_id = request.get("channel_id")
+        if not channel_id:
+            return {
+                "channel_id": None,
+                "email_found": None,
+                "content_preview": None,
+                "content_length": 0,
+                "error": "channel_id is required in request body",
+                "success": False
+            }
+            
+        logger.info(f"Testing email extraction for channel: {channel_id}")
+        
+        # Test the scraping function
+        email, content = await scrape_channel_about_page(channel_id)
+        
+        return {
+            "channel_id": channel_id,
+            "email_found": email,
+            "content_preview": content[:500] if content else None,
+            "content_length": len(content) if content else 0,
+            "success": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing email extraction: {e}")
+        channel_id = request.get("channel_id") if isinstance(request, dict) else "unknown"
+        return {
+            "channel_id": channel_id,
+            "email_found": None,
+            "content_preview": None,
+            "content_length": 0,
+            "error": str(e),
+            "success": False
+        }
+
+@api_router.get("/debug/test-email-extraction")
+async def test_email_extraction_get(channel_id: str):
+    """Debug endpoint to test email extraction for a specific channel (GET version)"""
     try:
         logger.info(f"Testing email extraction for channel: {channel_id}")
         
