@@ -5695,7 +5695,7 @@ async def get_performance_dashboard():
 async def send_performance_alert(alert: Dict[str, Any]):
     """Send performance alert to Discord"""
     try:
-        if not DISCORD_WEBHOOK_URL:
+        if not DISCORD_WEBHOOK:
             return
             
         severity_colors = {
