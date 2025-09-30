@@ -1505,6 +1505,449 @@ def extract_email_from_text(text: str) -> Optional[str]:
     
     return None
 
+# =============================================================================
+# STEP 6: ANTI-DETECTION BROWSER SETUP
+# =============================================================================
+
+# Browser fingerprinting and stealth configurations
+BROWSER_VIEWPORTS = [
+    {"width": 1920, "height": 1080},
+    {"width": 1366, "height": 768},
+    {"width": 1536, "height": 864},
+    {"width": 1440, "height": 900},
+    {"width": 1280, "height": 720},
+]
+
+SCREEN_RESOLUTIONS = [
+    {"width": 1920, "height": 1080},
+    {"width": 1366, "height": 768},
+    {"width": 1536, "height": 864},
+    {"width": 1680, "height": 1050},
+    {"width": 1280, "height": 1024},
+]
+
+# Extended user agents for better rotation
+EXTENDED_USER_AGENTS = [
+    # Chrome Windows
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    
+    # Chrome macOS
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    
+    # Chrome Linux
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    
+    # Firefox
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    
+    # Safari
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
+]
+
+import random
+import secrets
+
+def get_random_fingerprint() -> dict:
+    """Generate randomized browser fingerprint"""
+    try:
+        viewport = random.choice(BROWSER_VIEWPORTS)
+        screen = random.choice(SCREEN_RESOLUTIONS)
+        user_agent = random.choice(EXTENDED_USER_AGENTS)
+        
+        # Determine OS from user agent
+        os_type = "Windows"
+        if "Macintosh" in user_agent:
+            os_type = "macOS"
+        elif "X11" in user_agent or "Linux" in user_agent:
+            os_type = "Linux"
+        
+        # Generate WebGL and Canvas fingerprints
+        webgl_vendor = random.choice([
+            "Google Inc. (Intel)",
+            "Google Inc. (NVIDIA)",
+            "Google Inc. (AMD)",
+            "Mozilla",
+            "WebKit WebGL"
+        ])
+        
+        webgl_renderer = random.choice([
+            "ANGLE (Intel, Intel(R) HD Graphics 620, OpenGL 4.1)",
+            "ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.1)",
+            "ANGLE (AMD, AMD Radeon Pro 560, OpenGL 4.1)",
+            "Intel Iris OpenGL Engine",
+            "AMD Radeon Pro 5500M OpenGL Engine"
+        ])
+        
+        return {
+            "user_agent": user_agent,
+            "viewport": viewport,
+            "screen": screen,
+            "os_type": os_type,
+            "timezone": random.choice([
+                "America/New_York", "America/Chicago", "America/Denver", 
+                "America/Los_Angeles", "Europe/London", "Europe/Berlin",
+                "Asia/Tokyo", "Asia/Shanghai", "Australia/Sydney"
+            ]),
+            "language": random.choice(["en-US", "en-GB", "en-CA", "fr-FR", "de-DE"]),
+            "languages": random.choice([
+                ["en-US", "en"],
+                ["en-GB", "en"],
+                ["en-US", "en", "es"],
+                ["fr-FR", "fr", "en"],
+                ["de-DE", "de", "en"]
+            ]),
+            "webgl_vendor": webgl_vendor,
+            "webgl_renderer": webgl_renderer,
+            "hardware_concurrency": random.choice([4, 8, 12, 16]),
+            "device_memory": random.choice([4, 8, 16, 32]),
+            "platform": random.choice([
+                "Win32", "MacIntel", "Linux x86_64"
+            ]) if os_type != "macOS" else "MacIntel"
+        }
+    except Exception as e:
+        logger.error(f"Error generating fingerprint: {e}")
+        # Return fallback fingerprint
+        return {
+            "user_agent": EXTENDED_USER_AGENTS[0],
+            "viewport": BROWSER_VIEWPORTS[0],
+            "screen": SCREEN_RESOLUTIONS[0],
+            "os_type": "Windows",
+            "timezone": "America/New_York",
+            "language": "en-US",
+            "languages": ["en-US", "en"]
+        }
+
+async def create_stealth_browser_context(proxy_config: Optional[ProxyConfig] = None, 
+                                       fingerprint: dict = None) -> tuple:
+    """
+    Create anti-detection browser context with stealth configurations
+    Returns (browser, context, fingerprint_used)
+    """
+    try:
+        if not fingerprint:
+            fingerprint = get_random_fingerprint()
+        
+        # Launch browser with stealth args
+        launch_options = {
+            "headless": True,
+            "args": [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=TranslateUI',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--disable-extensions',
+                '--disable-plugins',
+                '--disable-images',  # Faster loading
+                '--disable-javascript-harmony-shipping',
+                '--disable-background-networking',
+                '--disable-default-apps',
+                '--disable-sync',
+                '--metrics-recording-only',
+                '--no-default-browser-check',
+                '--no-first-run',
+                '--safebrowsing-disable-auto-update',
+                '--password-store=basic',
+                '--use-mock-keychain',
+                f'--user-agent={fingerprint["user_agent"]}'
+            ]
+        }
+        
+        # Add proxy configuration if provided
+        if proxy_config:
+            proxy_url = f"{proxy_config.protocol}://"
+            if proxy_config.username and proxy_config.password:
+                proxy_url += f"{proxy_config.username}:{proxy_config.password}@"
+            proxy_url += f"{proxy_config.ip}:{proxy_config.port}"
+            
+            launch_options["proxy"] = {"server": proxy_url}
+        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(**launch_options)
+            
+            # Create context with stealth settings
+            context_options = {
+                "user_agent": fingerprint["user_agent"],
+                "viewport": fingerprint["viewport"],
+                "screen": fingerprint["screen"],
+                "locale": fingerprint["language"],
+                "timezone_id": fingerprint["timezone"],
+                "permissions": ["geolocation"],
+                "extra_http_headers": {
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": f"{fingerprint['language']},en;q=0.5",
+                    "Accept-Encoding": "gzip, deflate",
+                    "DNT": "1",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-GPC": "1",
+                    "Pragma": "no-cache",
+                    "Cache-Control": "no-cache"
+                }
+            }
+            
+            context = await browser.new_context(**context_options)
+            
+            # Add stealth scripts to hide automation
+            await context.add_init_script("""
+                // Remove webdriver property
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                // Mock languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => """ + str(fingerprint["languages"]).replace("'", '"') + """,
+                });
+                
+                // Mock plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+                
+                // Mock hardware concurrency
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                    get: () => """ + str(fingerprint.get("hardware_concurrency", 4)) + """,
+                });
+                
+                // Mock device memory  
+                Object.defineProperty(navigator, 'deviceMemory', {
+                    get: () => """ + str(fingerprint.get("device_memory", 8)) + """,
+                });
+                
+                // Mock platform
+                Object.defineProperty(navigator, 'platform', {
+                    get: () => '""" + fingerprint.get("platform", "Win32") + """',
+                });
+                
+                // Remove automation indicators
+                window.chrome = {
+                    runtime: {},
+                    loadTimes: function(){},
+                    csi: function(){},
+                    app: {}
+                };
+                
+                // Mock WebGL
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                    if (parameter === 37445) {
+                        return '""" + fingerprint.get("webgl_vendor", "Google Inc.") + """';
+                    }
+                    if (parameter === 37446) {
+                        return '""" + fingerprint.get("webgl_renderer", "ANGLE (Intel)") + """';
+                    }
+                    return getParameter(parameter);
+                };
+                
+                // Randomize canvas fingerprint
+                const toDataURL = HTMLCanvasElement.prototype.toDataURL;
+                HTMLCanvasElement.prototype.toDataURL = function(...args) {
+                    const shift = Math.floor(Math.random() * 10) - 5;
+                    const ctx = this.getContext('2d');
+                    const originalData = ctx.getImageData(0, 0, this.width, this.height);
+                    const data = originalData.data;
+                    for (let i = 0; i < data.length; i += 4) {
+                        data[i] = Math.min(255, Math.max(0, data[i] + shift));
+                    }
+                    ctx.putImageData(originalData, 0, 0);
+                    return toDataURL.apply(this, args);
+                };
+            """)
+            
+            return browser, context, fingerprint
+            
+    except Exception as e:
+        logger.error(f"Error creating stealth browser context: {e}")
+        raise
+
+async def simulate_human_behavior(page, action_delay_range: tuple = (1, 3)):
+    """
+    Simulate realistic human browsing behavior with random delays and movements
+    """
+    try:
+        # Random delay before action
+        delay = random.uniform(action_delay_range[0], action_delay_range[1])
+        await asyncio.sleep(delay)
+        
+        # Random mouse movements
+        for _ in range(random.randint(1, 3)):
+            x = random.randint(100, 800)
+            y = random.randint(100, 600)
+            await page.mouse.move(x, y)
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+        
+        # Occasional random scrolling
+        if random.random() < 0.3:  # 30% chance to scroll
+            scroll_delta = random.randint(-300, 300)
+            await page.mouse.wheel(0, scroll_delta)
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+        
+        # Random typing delays if typing
+        return random.uniform(0.05, 0.15)  # Per character delay
+        
+    except Exception as e:
+        logger.error(f"Error simulating human behavior: {e}")
+        return 0.1  # Default typing delay
+
+async def rotate_user_agent_and_viewport(context, fingerprint: dict = None):
+    """
+    Rotate user agent and viewport for existing context
+    """
+    try:
+        if not fingerprint:
+            fingerprint = get_random_fingerprint()
+        
+        # Note: Playwright doesn't support changing user agent after context creation
+        # This function documents the approach and can be used when creating new contexts
+        logger.info(f"Using rotated fingerprint: {fingerprint['user_agent'][:50]}...")
+        
+        return fingerprint
+        
+    except Exception as e:
+        logger.error(f"Error rotating user agent: {e}")
+        return fingerprint
+
+async def implement_residential_proxy_rotation(account_id: str) -> Optional[ProxyConfig]:
+    """
+    Get a residential proxy for the account with smart rotation
+    """
+    try:
+        # Get available residential proxies (assuming they're marked with location)
+        proxies_cursor = db.proxy_pool.find({
+            "status": "active",
+            "health_status": {"$in": ["healthy", "unknown"]},
+            "location": {"$exists": True},  # Residential proxies should have location
+            "daily_requests_count": {"$lt": MAX_DAILY_REQUESTS_PER_PROXY}
+        }).sort([
+            ("success_rate", -1),
+            ("daily_requests_count", 1),
+            ("last_used", 1)
+        ])
+        
+        proxies = await proxies_cursor.to_list(None)
+        
+        if proxies:
+            # Select proxy based on account's history to avoid pattern detection
+            account_usage = await db.account_usage_logs.find({
+                "account_id": account_id,
+                "details.proxy_id": {"$exists": True}
+            }).sort("timestamp", -1).limit(10).to_list(10)
+            
+            used_proxy_ids = [log["details"]["proxy_id"] for log in account_usage 
+                            if log.get("details", {}).get("proxy_id")]
+            
+            # Prefer proxies not recently used by this account
+            unused_proxies = [p for p in proxies if p["id"] not in used_proxy_ids]
+            
+            selected_proxy_data = unused_proxies[0] if unused_proxies else proxies[0]
+            
+            # Update proxy usage
+            await db.proxy_pool.update_one(
+                {"id": selected_proxy_data["id"]},
+                {
+                    "$set": {"last_used": datetime.now(timezone.utc)},
+                    "$inc": {"daily_requests_count": 1}
+                }
+            )
+            
+            proxy_config = ProxyConfig(**selected_proxy_data)
+            
+            logger.info(f"Selected residential proxy: {proxy_config.location} for account {account_id}")
+            
+            return proxy_config
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error implementing residential proxy rotation: {e}")
+        return None
+
+async def create_enhanced_stealth_session(account_id: str, 
+                                        use_proxy: bool = True,
+                                        session_type: str = "youtube_scraping") -> dict:
+    """
+    Create comprehensive anti-detection session with all stealth measures
+    """
+    try:
+        logger.info(f"Creating enhanced stealth session for account {account_id}")
+        
+        # Get proxy if requested
+        proxy_config = None
+        if use_proxy:
+            proxy_config = await implement_residential_proxy_rotation(account_id)
+        
+        # Generate fingerprint
+        fingerprint = get_random_fingerprint()
+        
+        # Create stealth browser
+        browser, context, used_fingerprint = await create_stealth_browser_context(
+            proxy_config, fingerprint
+        )
+        
+        # Create page with additional stealth measures
+        page = await context.new_page()
+        
+        # Add extra stealth measures
+        await page.set_extra_http_headers({
+            "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": f'"{used_fingerprint.get("os_type", "Windows")}"',
+            "sec-fetch-user": "?1"
+        })
+        
+        # Log session creation
+        await log_account_usage_pattern(
+            account_id, 
+            "stealth_session_created",
+            True,
+            {
+                "session_type": session_type,
+                "proxy_id": proxy_config.id if proxy_config else None,
+                "proxy_location": proxy_config.location if proxy_config else None,
+                "fingerprint": used_fingerprint,
+                "user_agent": used_fingerprint["user_agent"][:100]
+            }
+        )
+        
+        session_info = {
+            "browser": browser,
+            "context": context,
+            "page": page,
+            "fingerprint": used_fingerprint,
+            "proxy_config": proxy_config,
+            "account_id": account_id,
+            "session_id": str(uuid.uuid4()),
+            "created_at": datetime.now(timezone.utc)
+        }
+        
+        return session_info
+        
+    except Exception as e:
+        logger.error(f"Error creating enhanced stealth session: {e}")
+        raise
+
 async def scrape_channel_about_page(channel_id: str, use_authenticated_session: bool = True) -> tuple[Optional[str], Optional[str]]:
     """Scrape channel about page for email and content using Playwright with authentication support"""
     try:
