@@ -19,6 +19,10 @@ function App() {
   const [mainLeads, setMainLeads] = useState([]);
   const [noEmailLeads, setNoEmailLeads] = useState([]);
   const [selectedTab, setSelectedTab] = useState('generator');
+  
+  // Monitoring dashboard state
+  const [performanceMetrics, setPerformanceMetrics] = useState(null);
+  const [monitoringLoading, setMonitoringLoading] = useState(false);
 
   // Poll for status updates
   useEffect(() => {
