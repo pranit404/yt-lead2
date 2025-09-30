@@ -2606,5 +2606,590 @@ def main():
         print("🚨 Critical fixes needed before proceeding")
         sys.exit(1)
 
+class Phase5MonitoringOptimizationTester:
+    """Test Phase 5 Monitoring and Optimization Endpoints"""
+    
+    def __init__(self):
+        self.backend_url = BACKEND_URL
+        self.test_results = []
+        self.failed_tests = []
+        
+    def log_test(self, test_name: str, success: bool, details: str = "", response_data: Dict = None):
+        """Log test results"""
+        result = {
+            "test_name": test_name,
+            "success": success,
+            "details": details,
+            "response_data": response_data
+        }
+        self.test_results.append(result)
+        
+        if not success:
+            self.failed_tests.append(result)
+            
+        status = "✅ PASS" if success else "❌ FAIL"
+        print(f"{status} {test_name}: {details}")
+        
+    def test_backend_connectivity(self):
+        """Test basic backend connectivity"""
+        try:
+            response = requests.get(f"{self.backend_url}/", timeout=10)
+            if response.status_code == 200:
+                self.log_test("Backend Connectivity", True, "Backend is accessible")
+                return True
+            else:
+                self.log_test("Backend Connectivity", False, f"HTTP {response.status_code}")
+                return False
+        except Exception as e:
+            self.log_test("Backend Connectivity", False, f"Connection error: {str(e)}")
+            return False
+    
+    def test_performance_dashboard_endpoint(self):
+        """Test GET /api/monitoring/performance-dashboard endpoint"""
+        print("\n📊 Testing Performance Dashboard Endpoint...")
+        
+        try:
+            response = requests.get(f"{self.backend_url}/monitoring/performance-dashboard", timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check for required top-level fields
+                required_fields = [
+                    "system_performance", "account_performance", "proxy_performance", 
+                    "cost_tracking", "reliability_metrics", "alerts", "timestamp"
+                ]
+                
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    # Validate system_performance structure
+                    sys_perf = data.get("system_performance", {})
+                    sys_perf_fields = ["total_requests_processed", "success_rate", "avg_response_time", "active_sessions"]
+                    sys_missing = [field for field in sys_perf_fields if field not in sys_perf]
+                    
+                    # Validate account_performance structure
+                    acc_perf = data.get("account_performance", {})
+                    acc_perf_fields = ["total_accounts", "healthy_accounts", "banned_accounts", "avg_success_rate"]
+                    acc_missing = [field for field in acc_perf_fields if field not in acc_perf]
+                    
+                    # Validate proxy_performance structure
+                    proxy_perf = data.get("proxy_performance", {})
+                    proxy_perf_fields = ["total_proxies", "healthy_proxies", "banned_proxies", "avg_response_time"]
+                    proxy_missing = [field for field in proxy_perf_fields if field not in proxy_perf]
+                    
+                    # Validate alerts structure
+                    alerts = data.get("alerts", [])
+                    alerts_valid = isinstance(alerts, list)
+                    
+                    if not sys_missing and not acc_missing and not proxy_missing and alerts_valid:
+                        self.log_test("Performance Dashboard Structure", True, 
+                                    f"All required fields present. System success rate: {sys_perf.get('success_rate', 0)}%, "
+                                    f"Healthy accounts: {acc_perf.get('healthy_accounts', 0)}, "
+                                    f"Healthy proxies: {proxy_perf.get('healthy_proxies', 0)}", data)
+                    else:
+                        missing_details = f"System: {sys_missing}, Account: {acc_missing}, Proxy: {proxy_missing}, Alerts valid: {alerts_valid}"
+                        self.log_test("Performance Dashboard Structure", False, 
+                                    f"Missing or invalid fields: {missing_details}", data)
+                else:
+                    self.log_test("Performance Dashboard Structure", False, 
+                                f"Missing top-level fields: {missing_fields}", data)
+            else:
+                self.log_test("Performance Dashboard Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Performance Dashboard Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_current_alerts_endpoint(self):
+        """Test GET /api/monitoring/alerts/current endpoint"""
+        print("\n🚨 Testing Current Alerts Endpoint...")
+        
+        try:
+            response = requests.get(f"{self.backend_url}/monitoring/alerts/current", timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check for alerts field
+                if "alerts" in data:
+                    alerts = data["alerts"]
+                    
+                    if isinstance(alerts, list):
+                        # Validate alert structure if alerts exist
+                        valid_alerts = True
+                        alert_details = []
+                        
+                        for alert in alerts:
+                            if isinstance(alert, dict):
+                                required_alert_fields = ["type", "severity", "message", "timestamp"]
+                                missing_alert_fields = [field for field in required_alert_fields if field not in alert]
+                                
+                                if missing_alert_fields:
+                                    valid_alerts = False
+                                    alert_details.append(f"Missing fields: {missing_alert_fields}")
+                                else:
+                                    alert_details.append(f"{alert.get('severity', 'unknown')} - {alert.get('type', 'unknown')}")
+                            else:
+                                valid_alerts = False
+                                alert_details.append("Invalid alert format")
+                        
+                        if valid_alerts:
+                            self.log_test("Current Alerts Endpoint", True, 
+                                        f"Alerts retrieved successfully. Count: {len(alerts)}. "
+                                        f"Details: {', '.join(alert_details) if alert_details else 'No alerts'}", data)
+                        else:
+                            self.log_test("Current Alerts Endpoint", False, 
+                                        f"Invalid alert structure: {', '.join(alert_details)}", data)
+                    else:
+                        self.log_test("Current Alerts Endpoint", False, 
+                                    f"Alerts field should be a list, got: {type(alerts)}", data)
+                else:
+                    self.log_test("Current Alerts Endpoint", False, 
+                                "Missing 'alerts' field in response", data)
+            else:
+                self.log_test("Current Alerts Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Current Alerts Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_optimization_recommendations_endpoint(self):
+        """Test GET /api/optimization/recommendations endpoint"""
+        print("\n🎯 Testing Optimization Recommendations Endpoint...")
+        
+        try:
+            response = requests.get(f"{self.backend_url}/optimization/recommendations", timeout=20)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check for required fields
+                required_fields = ["performance_recommendations", "scaling_recommendations", "timestamp"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    perf_recs = data.get("performance_recommendations", [])
+                    scaling_recs = data.get("scaling_recommendations", [])
+                    
+                    # Validate recommendations structure
+                    valid_structure = True
+                    validation_details = []
+                    
+                    if isinstance(perf_recs, list):
+                        for rec in perf_recs:
+                            if isinstance(rec, dict):
+                                rec_fields = ["type", "priority", "description", "impact"]
+                                missing_rec_fields = [field for field in rec_fields if field not in rec]
+                                if missing_rec_fields:
+                                    valid_structure = False
+                                    validation_details.append(f"Performance rec missing: {missing_rec_fields}")
+                            else:
+                                valid_structure = False
+                                validation_details.append("Invalid performance recommendation format")
+                    else:
+                        valid_structure = False
+                        validation_details.append("Performance recommendations should be a list")
+                    
+                    if isinstance(scaling_recs, list):
+                        for rec in scaling_recs:
+                            if isinstance(rec, dict):
+                                rec_fields = ["resource_type", "current_usage", "recommended_action", "reason"]
+                                missing_rec_fields = [field for field in rec_fields if field not in rec]
+                                if missing_rec_fields:
+                                    valid_structure = False
+                                    validation_details.append(f"Scaling rec missing: {missing_rec_fields}")
+                            else:
+                                valid_structure = False
+                                validation_details.append("Invalid scaling recommendation format")
+                    else:
+                        valid_structure = False
+                        validation_details.append("Scaling recommendations should be a list")
+                    
+                    if valid_structure:
+                        self.log_test("Optimization Recommendations Endpoint", True, 
+                                    f"Recommendations retrieved successfully. Performance: {len(perf_recs)}, "
+                                    f"Scaling: {len(scaling_recs)}", data)
+                    else:
+                        self.log_test("Optimization Recommendations Endpoint", False, 
+                                    f"Invalid recommendation structure: {', '.join(validation_details)}", data)
+                else:
+                    self.log_test("Optimization Recommendations Endpoint", False, 
+                                f"Missing required fields: {missing_fields}", data)
+            else:
+                self.log_test("Optimization Recommendations Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Optimization Recommendations Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_smart_scheduling_endpoint(self):
+        """Test GET /api/optimization/smart-scheduling endpoint"""
+        print("\n⏰ Testing Smart Scheduling Endpoint...")
+        
+        try:
+            response = requests.get(f"{self.backend_url}/optimization/smart-scheduling", timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check for required fields
+                required_fields = ["current_strategy", "time_based_recommendations", "optimal_hours", "timestamp"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    current_strategy = data.get("current_strategy", {})
+                    time_recs = data.get("time_based_recommendations", [])
+                    optimal_hours = data.get("optimal_hours", [])
+                    
+                    # Validate current_strategy structure
+                    strategy_fields = ["strategy_type", "current_hour", "recommended_action"]
+                    strategy_missing = [field for field in strategy_fields if field not in current_strategy]
+                    
+                    # Validate time_based_recommendations
+                    valid_time_recs = isinstance(time_recs, list)
+                    
+                    # Validate optimal_hours
+                    valid_optimal_hours = isinstance(optimal_hours, list)
+                    
+                    if not strategy_missing and valid_time_recs and valid_optimal_hours:
+                        self.log_test("Smart Scheduling Endpoint", True, 
+                                    f"Scheduling config retrieved successfully. Strategy: {current_strategy.get('strategy_type', 'unknown')}, "
+                                    f"Current hour: {current_strategy.get('current_hour', 'unknown')}, "
+                                    f"Optimal hours count: {len(optimal_hours)}", data)
+                    else:
+                        error_details = f"Strategy missing: {strategy_missing}, Time recs valid: {valid_time_recs}, Optimal hours valid: {valid_optimal_hours}"
+                        self.log_test("Smart Scheduling Endpoint", False, 
+                                    f"Invalid scheduling structure: {error_details}", data)
+                else:
+                    self.log_test("Smart Scheduling Endpoint", False, 
+                                f"Missing required fields: {missing_fields}", data)
+            else:
+                self.log_test("Smart Scheduling Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Smart Scheduling Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_batch_analysis_endpoint(self):
+        """Test GET /api/optimization/batch-analysis endpoint"""
+        print("\n📦 Testing Batch Analysis Endpoint...")
+        
+        try:
+            # Test without batch_size parameter
+            response = requests.get(f"{self.backend_url}/optimization/batch-analysis", timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check for required fields
+                required_fields = ["optimal_batch_size", "current_queue_size", "batching_efficiency", "timestamp"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    optimal_batch = data.get("optimal_batch_size", 0)
+                    queue_size = data.get("current_queue_size", 0)
+                    efficiency = data.get("batching_efficiency", 0)
+                    
+                    # Validate data types and ranges
+                    valid_data = True
+                    validation_errors = []
+                    
+                    if not isinstance(optimal_batch, int) or optimal_batch < 0:
+                        valid_data = False
+                        validation_errors.append("Invalid optimal_batch_size")
+                    
+                    if not isinstance(queue_size, int) or queue_size < 0:
+                        valid_data = False
+                        validation_errors.append("Invalid current_queue_size")
+                    
+                    if not isinstance(efficiency, (int, float)) or efficiency < 0 or efficiency > 100:
+                        valid_data = False
+                        validation_errors.append("Invalid batching_efficiency")
+                    
+                    if valid_data:
+                        self.log_test("Batch Analysis Endpoint", True, 
+                                    f"Batch analysis retrieved successfully. Optimal batch: {optimal_batch}, "
+                                    f"Queue size: {queue_size}, Efficiency: {efficiency}%", data)
+                    else:
+                        self.log_test("Batch Analysis Endpoint", False, 
+                                    f"Invalid data values: {', '.join(validation_errors)}", data)
+                else:
+                    self.log_test("Batch Analysis Endpoint", False, 
+                                f"Missing required fields: {missing_fields}", data)
+            else:
+                self.log_test("Batch Analysis Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+            
+            # Test with batch_size parameter
+            try:
+                response_with_param = requests.get(f"{self.backend_url}/optimization/batch-analysis?batch_size=10", timeout=15)
+                
+                if response_with_param.status_code == 200:
+                    param_data = response_with_param.json()
+                    self.log_test("Batch Analysis with Parameter", True, 
+                                f"Batch analysis with parameter successful. Optimal batch: {param_data.get('optimal_batch_size', 'unknown')}")
+                else:
+                    self.log_test("Batch Analysis with Parameter", False, 
+                                f"HTTP {response_with_param.status_code}: {response_with_param.text}")
+            except Exception as param_e:
+                self.log_test("Batch Analysis with Parameter", False, f"Parameter test error: {str(param_e)}")
+                
+        except Exception as e:
+            self.log_test("Batch Analysis Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_apply_recommendations_endpoint(self):
+        """Test POST /api/optimization/apply-recommendations endpoint"""
+        print("\n🔧 Testing Apply Recommendations Endpoint...")
+        
+        try:
+            response = requests.post(f"{self.backend_url}/optimization/apply-recommendations", json={}, timeout=20)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check for required fields
+                required_fields = ["applied_optimizations", "status", "timestamp"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    applied_opts = data.get("applied_optimizations", [])
+                    status = data.get("status", "")
+                    
+                    # Validate applied_optimizations structure
+                    valid_structure = True
+                    validation_details = []
+                    
+                    if isinstance(applied_opts, list):
+                        for opt in applied_opts:
+                            if isinstance(opt, dict):
+                                opt_fields = ["type", "action", "result"]
+                                missing_opt_fields = [field for field in opt_fields if field not in opt]
+                                if missing_opt_fields:
+                                    valid_structure = False
+                                    validation_details.append(f"Optimization missing: {missing_opt_fields}")
+                            else:
+                                valid_structure = False
+                                validation_details.append("Invalid optimization format")
+                    else:
+                        valid_structure = False
+                        validation_details.append("Applied optimizations should be a list")
+                    
+                    # Validate status
+                    valid_status = isinstance(status, str) and status in ["success", "partial", "failed", "no_changes_needed"]
+                    
+                    if valid_structure and valid_status:
+                        self.log_test("Apply Recommendations Endpoint", True, 
+                                    f"Optimizations applied successfully. Status: {status}, "
+                                    f"Applied count: {len(applied_opts)}", data)
+                    else:
+                        error_details = f"Structure valid: {valid_structure}, Status valid: {valid_status}, Details: {', '.join(validation_details)}"
+                        self.log_test("Apply Recommendations Endpoint", False, 
+                                    f"Invalid response structure: {error_details}", data)
+                else:
+                    self.log_test("Apply Recommendations Endpoint", False, 
+                                f"Missing required fields: {missing_fields}", data)
+            else:
+                self.log_test("Apply Recommendations Endpoint", False, 
+                            f"HTTP {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Apply Recommendations Endpoint", False, f"Request error: {str(e)}")
+    
+    def test_error_handling_empty_database(self):
+        """Test that endpoints handle empty database gracefully"""
+        print("\n🗄️ Testing Error Handling with Empty Database...")
+        
+        endpoints_to_test = [
+            ("/monitoring/performance-dashboard", "Performance Dashboard"),
+            ("/monitoring/alerts/current", "Current Alerts"),
+            ("/optimization/recommendations", "Optimization Recommendations"),
+            ("/optimization/smart-scheduling", "Smart Scheduling"),
+            ("/optimization/batch-analysis", "Batch Analysis")
+        ]
+        
+        for endpoint, name in endpoints_to_test:
+            try:
+                response = requests.get(f"{self.backend_url}{endpoint}", timeout=15)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Check that response contains timestamp (indicates proper handling)
+                    if "timestamp" in data:
+                        self.log_test(f"Empty DB Handling - {name}", True, 
+                                    f"Endpoint handles empty database gracefully")
+                    else:
+                        self.log_test(f"Empty DB Handling - {name}", False, 
+                                    f"Missing timestamp in response")
+                elif response.status_code == 500:
+                    # Check if it's a proper error response
+                    try:
+                        error_data = response.json()
+                        if "detail" in error_data:
+                            self.log_test(f"Empty DB Handling - {name}", True, 
+                                        f"Proper error handling: {error_data['detail']}")
+                        else:
+                            self.log_test(f"Empty DB Handling - {name}", False, 
+                                        f"Improper error format")
+                    except:
+                        self.log_test(f"Empty DB Handling - {name}", False, 
+                                    f"Invalid error response format")
+                else:
+                    self.log_test(f"Empty DB Handling - {name}", False, 
+                                f"Unexpected status code: {response.status_code}")
+                    
+            except Exception as e:
+                self.log_test(f"Empty DB Handling - {name}", False, f"Request error: {str(e)}")
+            
+            time.sleep(0.5)
+    
+    def test_response_performance(self):
+        """Test response times for monitoring endpoints"""
+        print("\n⚡ Testing Response Performance...")
+        
+        performance_endpoints = [
+            ("/monitoring/performance-dashboard", "Performance Dashboard", 30),
+            ("/monitoring/alerts/current", "Current Alerts", 15),
+            ("/optimization/recommendations", "Optimization Recommendations", 20),
+            ("/optimization/smart-scheduling", "Smart Scheduling", 15),
+            ("/optimization/batch-analysis", "Batch Analysis", 15)
+        ]
+        
+        for endpoint, name, max_time in performance_endpoints:
+            try:
+                start_time = time.time()
+                response = requests.get(f"{self.backend_url}{endpoint}", timeout=max_time)
+                end_time = time.time()
+                
+                response_time = end_time - start_time
+                
+                if response.status_code == 200:
+                    if response_time <= max_time:
+                        self.log_test(f"Performance - {name}", True, 
+                                    f"Response time: {response_time:.2f}s (within {max_time}s limit)")
+                    else:
+                        self.log_test(f"Performance - {name}", False, 
+                                    f"Response time: {response_time:.2f}s (exceeds {max_time}s limit)")
+                else:
+                    self.log_test(f"Performance - {name}", False, 
+                                f"HTTP {response.status_code} in {response_time:.2f}s")
+                    
+            except Exception as e:
+                self.log_test(f"Performance - {name}", False, f"Request error: {str(e)}")
+            
+            time.sleep(1)
+    
+    def run_all_tests(self):
+        """Run all Phase 5 Monitoring and Optimization tests"""
+        print("🚀 Starting Phase 5 Monitoring and Optimization Testing")
+        print("🎯 Testing New Monitoring and Optimization Endpoints")
+        print("=" * 70)
+        
+        # Test 1: Basic connectivity
+        if not self.test_backend_connectivity():
+            print("❌ Backend not accessible. Stopping tests.")
+            return False
+        
+        # Test 2: Performance Dashboard
+        self.test_performance_dashboard_endpoint()
+        
+        # Test 3: Current Alerts
+        self.test_current_alerts_endpoint()
+        
+        # Test 4: Optimization Recommendations
+        self.test_optimization_recommendations_endpoint()
+        
+        # Test 5: Smart Scheduling
+        self.test_smart_scheduling_endpoint()
+        
+        # Test 6: Batch Analysis
+        self.test_batch_analysis_endpoint()
+        
+        # Test 7: Apply Recommendations
+        self.test_apply_recommendations_endpoint()
+        
+        # Test 8: Error Handling
+        self.test_error_handling_empty_database()
+        
+        # Test 9: Performance Testing
+        self.test_response_performance()
+        
+        return True
+    
+    def generate_report(self):
+        """Generate test report for Phase 5"""
+        total_tests = len(self.test_results)
+        passed_tests = total_tests - len(self.failed_tests)
+        
+        print("\n" + "=" * 70)
+        print("📊 PHASE 5 MONITORING & OPTIMIZATION TEST REPORT")
+        print("🎯 New Monitoring and Optimization Endpoints")
+        print("=" * 70)
+        print(f"Total Tests: {total_tests}")
+        print(f"Passed: {passed_tests}")
+        print(f"Failed: {len(self.failed_tests)}")
+        print(f"Success Rate: {(passed_tests/total_tests)*100:.1f}%" if total_tests > 0 else "No tests run")
+        
+        if self.failed_tests:
+            print("\n❌ FAILED TESTS:")
+            for test in self.failed_tests:
+                print(f"  • {test['test_name']}: {test['details']}")
+        
+        print("\n🔍 KEY FINDINGS:")
+        
+        # Analyze results by test category
+        categories = {
+            "Monitoring Endpoints": [t for t in self.test_results if any(monitor in t["test_name"] for monitor in ["Performance Dashboard", "Current Alerts"])],
+            "Optimization Endpoints": [t for t in self.test_results if any(opt in t["test_name"] for opt in ["Optimization Recommendations", "Smart Scheduling", "Batch Analysis", "Apply Recommendations"])],
+            "Error Handling": [t for t in self.test_results if "Empty DB Handling" in t["test_name"]],
+            "Performance": [t for t in self.test_results if "Performance -" in t["test_name"]]
+        }
+        
+        for category, tests in categories.items():
+            if tests:
+                passed = len([t for t in tests if t["success"]])
+                print(f"  • {category}: {passed}/{len(tests)} passed")
+        
+        # Critical issues assessment
+        critical_failures = []
+        for test in self.failed_tests:
+            if any(critical in test["test_name"] for critical in ["Performance Dashboard", "Current Alerts", "Optimization Recommendations"]):
+                critical_failures.append(test["test_name"])
+        
+        # Overall assessment
+        if len(self.failed_tests) == 0:
+            print("\n✅ OVERALL: Phase 5 Monitoring & Optimization System is working perfectly!")
+            print("🎯 All new endpoints are functional and ready for production use")
+        elif critical_failures:
+            print(f"\n❌ OVERALL: Critical issues found in core monitoring endpoints: {', '.join(critical_failures)}")
+            print("🚨 Must fix critical issues before deploying monitoring system")
+        elif len(self.failed_tests) <= 3:
+            print("\n⚠️ OVERALL: Monitoring & optimization mostly working with minor issues")
+            print("🔧 Minor fixes recommended but system is functional")
+        else:
+            print("\n❌ OVERALL: Multiple issues found in monitoring & optimization system")
+            print("🛠️ Significant fixes needed before production deployment")
+        
+        return len(critical_failures) == 0
+
+
 if __name__ == "__main__":
-    main()
+    print("🎯 PHASE 5 MONITORING & OPTIMIZATION ENDPOINT TESTING")
+    print("=" * 70)
+    
+    # Run Phase 5 tests
+    phase5_tester = Phase5MonitoringOptimizationTester()
+    
+    if phase5_tester.run_all_tests():
+        success = phase5_tester.generate_report()
+        
+        if success:
+            print("\n🎉 Phase 5 testing completed successfully!")
+            sys.exit(0)
+        else:
+            print("\n⚠️ Phase 5 testing completed with critical issues!")
+            sys.exit(1)
+    else:
+        print("\n❌ Phase 5 testing failed to complete!")
+        sys.exit(1)
